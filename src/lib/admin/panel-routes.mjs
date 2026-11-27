@@ -284,12 +284,14 @@ import { DEFAULT_MAX_REQUEST_BYTES, reloadActiveVm } from '../core/config.mjs'
 import {
   OS_CATALOG,
   kernelForIndex,
+  normalizeOsKernel,
   normalizeTimezone,
   nextNumericIndex,
   padVm,
   discardSlotContainer,
   STANDARD_LOCALE,
 } from '../vm/vm-runtime.mjs'
+import { isCragDebian13Kernel } from '../vm/custom-os-runtime.mjs'
 import {
   startSlotReady,
   reloadSlotReady,
@@ -861,6 +863,15 @@ export function createPanelHandler(ctx) {
     json,
     readRawBody,
   })
+  const resolveSchedulerRuntime = () => {
+    if (typeof ctx.getSchedulerRuntime === 'function') return ctx.getSchedulerRuntime()
+    return typeof ctx.schedulerRuntime === 'function' ? ctx.schedulerRuntime() : ctx.schedulerRuntime || null
+  }
+  const notifySchedulerConfigChanged = (reason) => {
+    const rt = resolveSchedulerRuntime()
+    if (!rt || typeof rt.syncConfigNow !== 'function') return
+    void rt.syncConfigNow(reason).catch(() => {})
+  }
   const handleSchedulerPools = createSchedulerPoolsHandler({
     getDb: () => apiKeyStore?.db || ctx.getDb?.() || getDb(),
     cfg,
@@ -870,6 +881,9 @@ export function createPanelHandler(ctx) {
     poolScheduler: () => ctx.poolScheduler,
     geminiScheduler: () => ctx.geminiScheduler,
     geminiSlotPrefs: ctx.geminiSlotPrefs || null,
+    geminiOwnersRepo: ctx.geminiOwnersRepo || null,
+    schedulerRuntime: resolveSchedulerRuntime,
+    writeSSEHeaders: ctx.writeSSEHeaders || null,
     json,
     readBody,
   })
@@ -980,7 +994,10 @@ export function createPanelHandler(ctx) {
     if (!hasBoundExit(vm.proxy)) {
       startError = 'no_exit'
     } else {
-      const boot = await startSlotReady(vm, cfg.paths.project, { routing: ctx.routingConfig, bindSubscription })
+      const boot = await (ctx.startSlotReady || startSlotReady)(vm, cfg.paths.project, {
+        routing: ctx.routingConfig,
+        bindSubscription,
+      })
       vm = getVm(cfg.paths.project, id) || vm
       if (!boot?.ok) {
         startError = boot?.error || boot?.reason || 'runtime start failed'
@@ -1456,6 +1473,14 @@ export function createPanelHandler(ctx) {
       targetDataplane !== 'crag' &&
       !isCodexVm(desired) &&
       typeof ctx.cragSubscription?.releaseStoppedBinding === 'function'
+    if (!isCodexVm(desired) && isCragDebian13Kernel(desired.kernel) && targetDataplane !== 'crag') {
+      return {
+        ok: false,
+        id,
+        code: 'crag_debian13_crag_only',
+        error: 'crag-debian13 槽位仅支持 CRAG 推理数据面，不能切换为 cli-node/wrap',
+      }
+    }
     if (kernelSwitch && targetDataplane === 'crag' && targetVersion === 'v2') {
       if (isNativeNodeVm(desired)) {
         return { ok: false, id, code: 'native_crag_unsupported', error: 'crag 数据面暂不支持 macOS 原生节点' }
@@ -1822,7 +1847,25 @@ export function createPanelHandler(ctx) {
     }
   }
 
-  return async function handlePanel(req, res, url) {
+  const shouldSyncSchedulerOnMutation = (method, pathname) => {
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false
+    return (
+      pathname === '/admin/routing' ||
+      pathname === '/api/panel/routing' ||
+      pathname === '/api/panel/api-keys' ||
+      pathname.startsWith('/api/panel/api-keys/') ||
+      pathname === '/api/panel/api-endpoints' ||
+      pathname.startsWith('/api/panel/api-endpoints/') ||
+      pathname === '/api/panel/vms' ||
+      pathname.startsWith('/api/panel/vms/') ||
+      pathname === '/api/panel/refusal-guards' ||
+      pathname.startsWith('/api/panel/refusal-guards/') ||
+      pathname === '/api/panel/jev-intercept' ||
+      pathname.startsWith('/api/panel/jev-intercept/')
+    )
+  }
+
+  async function handlePanelInner(req, res, url) {
     const p = url.pathname
     if (!p.startsWith('/admin') && !p.startsWith('/api/panel')) return false
 
@@ -2180,8 +2223,14 @@ export function createPanelHandler(ctx) {
           }).body,
         )
       }
-      if (isGeminiPanelPath(p)) return geminiPanel(req, res, p)
-      if (p === '/api/panel/pools' || p.startsWith('/api/panel/pools/') || p === '/api/panel/scheduler/sticky') {
+      if (isGeminiPanelPath(p)) {
+        const out = await geminiPanel(req, res, p)
+        if (req.method !== 'GET' && req.method !== 'HEAD' && (res.statusCode || 200) < 400) {
+          notifySchedulerConfigChanged(`gemini:${req.method}:${p}`)
+        }
+        return out
+      }
+      if (p === '/api/panel/pools' || p.startsWith('/api/panel/pools/') || p.startsWith('/api/panel/scheduler/')) {
         const handled = await handleSchedulerPools(req, res, p, url)
         if (handled !== false) return
       }
@@ -2268,6 +2317,14 @@ export function createPanelHandler(ctx) {
           return json(res, 400, {
             ok: false,
             error: { code: 'kernel_switch_unsupported', message: '当前槽位不支持切换 Claude 内核' },
+          })
+        if (isCragDebian13Kernel(vm.kernel) && body.dataplane !== 'crag')
+          return json(res, 400, {
+            ok: false,
+            error: {
+              code: 'crag_debian13_crag_only',
+              message: 'crag-debian13 槽位仅支持 CRAG 推理数据面，不能切换为 cli-node/wrap',
+            },
           })
         // readBody yielded: reserve only after checking the latest admission state.
         if (kernelSwitchJobs.get(id)?.status === 'running')
@@ -2483,6 +2540,7 @@ export function createPanelHandler(ctx) {
           const allVms = listVms(cfg.paths.project)
           const pool = createVmPool(vmPoolsFor(apiKeyStore.db), body || {}, allVms)
           syncVmPoolToSchedulerPool(apiKeyStore.db, 'upsert', pool, allVms)
+          notifySchedulerConfigChanged('panel_vm_pool_create')
           return json(res, 201, panel.ok({ pool }))
         } catch (e) {
           return json(res, vmPoolHttpStatus(e.code), {
@@ -2499,6 +2557,7 @@ export function createPanelHandler(ctx) {
           const pool = updateVmPool(vmPoolsFor(apiKeyStore.db), id, body || {}, allVms)
           if (!pool) return json(res, 404, { ok: false, error: { message: '账号池不存在', code: 'vm_pool_not_found' } })
           syncVmPoolToSchedulerPool(apiKeyStore.db, 'upsert', pool, allVms)
+          notifySchedulerConfigChanged('panel_vm_pool_update')
           return json(res, 200, panel.ok({ pool }))
         } catch (e) {
           return json(res, vmPoolHttpStatus(e.code), {
@@ -2521,6 +2580,7 @@ export function createPanelHandler(ctx) {
           })
         }
         syncVmPoolToSchedulerPool(apiKeyStore.db, 'delete', { id })
+        notifySchedulerConfigChanged('panel_vm_pool_delete')
         return json(res, 200, { ok: true, deleted: id })
       }
       if (req.method === 'GET' && p === '/api/panel/api-keys') {
@@ -4774,7 +4834,8 @@ export function createPanelHandler(ctx) {
                   ? 404
                   : slotPolicyResult.code?.startsWith('license_')
                     ? 403
-                    : slotPolicyResult.code === 'gpt_engine_forbidden'
+                    : slotPolicyResult.code === 'gpt_engine_forbidden' ||
+                        slotPolicyResult.code === 'crag_debian13_crag_only'
                       ? 400
                       : 503
               return json(res, status, {
@@ -5975,18 +6036,26 @@ export function createPanelHandler(ctx) {
           }
         }
         const startNow = body.start !== false && body.status !== 'stopped'
-        const wantKernel = body.kernel && OS_CATALOG[body.kernel] ? body.kernel : kernelForIndex(idx)
+        const wantKernel = normalizeOsKernel(body.kernel) || kernelForIndex(idx)
+        const cragDebian13Create = isCragDebian13Kernel(wantKernel)
         let nodeId = body.node_id ? String(body.node_id) : null
         const kindProbe = {}
         stampVmKind(kindProbe, body)
         const codexCreate = isCodexVm(kindProbe)
+        if (codexCreate && cragDebian13Create) {
+          return json(res, 400, {
+            ok: false,
+            error: { code: 'invalid_create_dataplane', message: 'crag-debian13 仅支持 Anthropic CRAG 槽位' },
+          })
+        }
         if (Object.hasOwn(body, 'dataplane') && (codexCreate || !['wrap', 'crag'].includes(body.dataplane))) {
           return json(res, 400, {
             ok: false,
             error: { code: 'invalid_create_dataplane', message: '仅 Anthropic 支持选择 cli-node 或 CRAG 推理内核' },
           })
         }
-        const selectedCrag = body.dataplane === 'crag'
+        const effectiveDataplane = !codexCreate ? (cragDebian13Create ? 'crag' : (body.dataplane ?? 'wrap')) : undefined
+        const selectedCrag = !codexCreate && effectiveDataplane === 'crag'
         const unsupportedCrag = () =>
           json(res, 409, {
             ok: false,
@@ -6247,7 +6316,7 @@ export function createPanelHandler(ctx) {
         }
         if (nodeId) vm.node_id = nodeId
         stampVmKind(vm, body)
-        if (!codexCreate) vm.dataplane = body.dataplane ?? 'wrap'
+        if (!codexCreate) vm.dataplane = effectiveDataplane
         if (selectedCrag) {
           vm.crag_kernel_version = 'v2'
           // Do not publish a running record before the selected CRAG has passed licensing.
@@ -6383,7 +6452,7 @@ export function createPanelHandler(ctx) {
         if (!startError && startNow && hasExit(vm)) {
           let boot
           try {
-            boot = await startSlotReady(vm, cfg.paths.project, {
+            boot = await (ctx.startSlotReady || startSlotReady)(vm, cfg.paths.project, {
               routing: ctx.routingConfig,
               bindSubscription: createBindSubscription,
             })
@@ -8422,6 +8491,14 @@ export function createPanelHandler(ctx) {
     }
 
     return false
+  }
+
+  return async function handlePanel(req, res, url) {
+    const out = await handlePanelInner(req, res, url)
+    if (out !== false && shouldSyncSchedulerOnMutation(req.method, url.pathname) && (res.statusCode || 200) < 400) {
+      notifySchedulerConfigChanged(`${req.method}:${url.pathname}`)
+    }
+    return out
   }
 }
 
