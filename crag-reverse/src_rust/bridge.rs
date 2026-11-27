@@ -13,6 +13,23 @@ use crate::shm::{RingFrame, ShmRingOwner};
 
 pub const READ_BUFFER: usize = 0x2000;
 
+/// Extract the assistant text carried by one raw SSE chunk (`data: {...}`).
+fn sse_text(raw: &str) -> String {
+    for line in raw.lines() {
+        if let Some(data) = line.strip_prefix("data: ") {
+            if let Ok(value) = serde_json::from_str::<Value>(data) {
+                if let Some(text) = value
+                    .pointer("/candidates/0/content/parts/0/text")
+                    .and_then(Value::as_str)
+                {
+                    return text.to_string();
+                }
+            }
+        }
+    }
+    String::new()
+}
+
 /// `bridge::VerifiedExeKey` — file identity used to re-validate a copied worker.
 pub struct VerifiedExeKey {
     pub dev: u64,
@@ -119,6 +136,70 @@ impl Bridge {
         Ok(bridge)
     }
 
+    /// Read the bridge's `{"type":"ready",...}` line right after accept.
+    pub async fn read_ready(&self) -> Result<Value, Failure> {
+        let value = self.read_native().await?;
+        if value.get("type").and_then(Value::as_str) != Some("ready") {
+            return Err(Failure::new(502, "native_failed", "native bridge did not send ready"));
+        }
+        Ok(value)
+    }
+
+    /// Send the `attached` handshake line (protocol/session/shm_mode).
+    pub async fn send_attached(&self, session: &str, shm: bool) -> Result<(), Failure> {
+        self.write_native(&serde_json::json!({
+            "type": "attached",
+            "protocol": "agy_tui_bridge_v3",
+            "session_id": session,
+            "shm_mode": if shm { "memfd_ring_v2" } else { "none" },
+        }))
+        .await
+    }
+
+    /// Pass the memfd ring plus request/response eventfds with the 0xA6 command byte.
+    pub fn send_ring_fds(&self, ring: &ShmRingOwner) -> std::io::Result<()> {
+        use std::os::fd::AsRawFd;
+        let Some(native) = &self.native else {
+            return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, "no native socket"));
+        };
+        let guard = native.try_lock().map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::WouldBlock, "native socket busy")
+        })?;
+        let fd = guard.get_ref().as_raw_fd();
+        // 0.5.2 expects five: request memfd, response memfd, then three eventfds.
+        let fds = ring.fds();
+        let mut byte = [0xa6u8];
+        let mut iov = libc::iovec {
+            iov_base: byte.as_mut_ptr().cast(),
+            iov_len: 1,
+        };
+        // Official core sets controllen to CMSG_LEN (28 for 3 fds), not
+        // CMSG_SPACE; the extra padding otherwise parses as a bogus cmsg.
+        let cmsg_len = unsafe { libc::CMSG_LEN((fds.len() * 4) as u32) } as usize;
+        let cmsg_space = unsafe { libc::CMSG_SPACE((fds.len() * 4) as u32) } as usize;
+        let mut cmsg = vec![0u8; cmsg_space];
+        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = cmsg.as_mut_ptr().cast();
+        msg.msg_controllen = cmsg_len as _;
+        unsafe {
+            let hdr = libc::CMSG_FIRSTHDR(&msg);
+            (*hdr).cmsg_level = libc::SOL_SOCKET;
+            (*hdr).cmsg_type = libc::SCM_RIGHTS;
+            (*hdr).cmsg_len = cmsg_len as _;
+            let data = libc::CMSG_DATA(hdr).cast::<i32>();
+            for (i, fd) in fds.iter().enumerate() {
+                *data.add(i) = *fd;
+            }
+        }
+        let sent = unsafe { libc::sendmsg(fd, &msg, libc::MSG_NOSIGNAL) };
+        if sent < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
     async fn write_native(&self, value: &Value) -> Result<(), Failure> {
         use tokio::io::AsyncWriteExt;
         let Some(native) = &self.native else {
@@ -180,14 +261,14 @@ impl Bridge {
     ) -> Result<crate::server::JsonTurnResult, Failure> {
         let meta = self.meta_for(&envelope, false);
         let prompt = crate::protocol::prompt_from_body(&envelope.body);
-        if self.native.is_some() {
-            let request = serde_json::to_value(crate::protocol::ToBridge::Submit(envelope.clone()))
-                .map_err(|e| Failure::new(400, "invalid_envelope", &e.to_string()))?;
-            self.write_native(&request).await?;
-        } else if let Some(ring) = &self.ring {
+        if let Some(ring) = &self.ring {
             let packed = crate::protocol::pack_ring_envelope(&meta, &prompt);
             ring.push_request(0, 1, &packed)
                 .map_err(|e| Failure::new(503, "native_unavailable", &e.to_string()))?;
+        } else if self.native.is_some() {
+            let request = serde_json::to_value(crate::protocol::ToBridge::Submit(envelope.clone()))
+                .map_err(|e| Failure::new(400, "invalid_envelope", &e.to_string()))?;
+            self.write_native(&request).await?;
         } else {
             return Err(Failure::new(
                 503,
@@ -208,14 +289,14 @@ impl Bridge {
         let ring = self.ring.clone();
         let meta = self.meta_for(&envelope, true);
         let prompt = crate::protocol::prompt_from_body(&envelope.body);
-        if self.native.is_some() {
-            let request = serde_json::to_value(crate::protocol::ToBridge::Submit(envelope.clone()))
-                .map_err(|e| Failure::new(400, "invalid_envelope", &e.to_string()))?;
-            self.write_native(&request).await?;
-        } else if let Some(ring) = &ring {
+        if let Some(ring) = &ring {
             let packed = crate::protocol::pack_ring_envelope(&meta, &prompt);
             ring.push_request(0, 1, &packed)
                 .map_err(|e| Failure::new(503, "native_unavailable", &e.to_string()))?;
+        } else if self.native.is_some() {
+            let request = serde_json::to_value(crate::protocol::ToBridge::Submit(envelope.clone()))
+                .map_err(|e| Failure::new(400, "invalid_envelope", &e.to_string()))?;
+            self.write_native(&request).await?;
         } else {
             return Err(Failure::new(
                 503,
@@ -252,7 +333,8 @@ impl Bridge {
                 .as_ref()
                 .and_then(|v| v.get("system_prompt"))
                 .and_then(Value::as_str)
-                .map(str::to_string),
+                .unwrap_or_default()
+                .to_string(),
             tool_filter: crate::protocol::ToolFilter::default(),
             expected_native_conversation_id: envelope
                 .request_context
@@ -370,6 +452,36 @@ impl Bridge {
 
     /// `bridge::run_loop` closure 0x1bba80 / 0x19dd90: decode a frame into `FromBridge`.
     pub fn decode_frame(frame: &RingFrame) -> Result<FromBridge, Failure> {
+        // Response rings carry two frame classes (captured on the wire):
+        //   0x0A: u32 meta_len | meta JSON | raw SSE text
+        //   0x0F: plain JSON event
+        if frame.kind == crate::shm::KIND_PROVIDER_SSE && frame.payload.len() >= 4 {
+            let meta_len = u32::from_le_bytes([
+                frame.payload[0],
+                frame.payload[1],
+                frame.payload[2],
+                frame.payload[3],
+            ]) as usize;
+            if meta_len <= frame.payload.len().saturating_sub(4) {
+                let meta: Value =
+                    serde_json::from_slice(&frame.payload[4..4 + meta_len]).unwrap_or(Value::Null);
+                let text = String::from_utf8_lossy(&frame.payload[4 + meta_len..]).into_owned();
+                let request_id = meta
+                    .get("request_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                return Ok(FromBridge::ProviderSse {
+                    request_id,
+                    payload: serde_json::json!({
+                        "type": "provider_sse",
+                        "text": text,
+                        "delta": { "text": sse_text(&text) },
+                    }),
+                    seq: frame.seq as u64,
+                });
+            }
+        }
         ring_decode(&frame.payload).map_err(|e| Failure::new(502, "provider_sse", &e))
     }
 
@@ -449,7 +561,9 @@ async fn stream_task(
     let mut deadline = first_byte;
     loop {
         let next = async {
-            if let Some(native) = &native {
+            if let Some(ring) = &ring {
+                next_frame_static(ring).await
+            } else if let Some(native) = &native {
                 use tokio::io::AsyncBufReadExt;
                 let mut stream = native.lock().await;
                 let mut line = String::new();
@@ -463,8 +577,6 @@ async fn stream_task(
                 }
                 serde_json::from_str::<FromBridge>(&line)
                     .map_err(|e| Failure::new(502, "provider_sse", &e.to_string()))
-            } else if let Some(ring) = &ring {
-                next_frame_static(ring).await
             } else {
                 Err(Failure::new(
                     503,
@@ -534,13 +646,17 @@ async fn stream_task(
 }
 
 async fn next_frame_static(ring: &ShmRingOwner) -> Result<FromBridge, Failure> {
-    let frames = ring
-        .drain_responses(1)
-        .map_err(|e| Failure::new(502, "provider_sse", &e.to_string()))?;
-    let Some(frame) = frames.first() else {
-        return Err(Failure::new(502, "provider_sse", "empty ring frame"));
-    };
-    Bridge::decode_frame(frame)
+    // The ring is polled: an empty drain is normal, not an error (the outer
+    // timeout owns the deadline).
+    loop {
+        let frames = ring
+            .drain_responses(1)
+            .map_err(|e| Failure::new(502, "provider_sse", &e.to_string()))?;
+        if let Some(frame) = frames.first() {
+            return Bridge::decode_frame(frame);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
 }
 
 // ---------------------------------------------------------------------------

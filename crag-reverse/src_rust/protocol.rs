@@ -159,8 +159,8 @@ pub struct RingSubmitMeta {
     #[serde(default)]
     pub include_thoughts: bool,
     /// 0.5.0: composed system prompt travels in the meta (up to the ring budget).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub system_prompt: String,
     #[serde(default)]
     pub tool_filter: ToolFilter,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -174,7 +174,7 @@ pub struct ToolFilter {
     pub allow_client_mcp: bool,
     #[serde(default)]
     pub allow_read_file: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub allow_web_search: bool,
     #[serde(default)]
     pub allow_web_fetch: bool,
@@ -235,15 +235,18 @@ pub fn prompt_from_body(body: &Value) -> Vec<u8> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum FromBridge {
     Accepted {
         request_id: String,
+        #[serde(default)]
         seq: u64,
     },
     ControlResult {
         request_id: String,
         ok: bool,
         payload: Value,
+        #[serde(default)]
         seq: u64,
         status: u16,
     },
@@ -251,18 +254,22 @@ pub enum FromBridge {
         error: Value,
     },
     Idle {
+        #[serde(default)]
         seq: u64,
+        #[serde(default)]
         session: String,
     },
     NativeToolInline {
         request_id: String,
         payload: Value,
+        #[serde(default)]
         seq: u64,
     },
     NativeToolShm {
         request_id: String,
         offset: u64,
         length: u64,
+        #[serde(default)]
         seq: u64,
         sha256: String,
         shell: String,
@@ -275,41 +282,55 @@ pub enum FromBridge {
     ProviderSse {
         request_id: String,
         payload: Value,
+        #[serde(default)]
         seq: u64,
     },
     ProviderSseShm {
         request_id: String,
         offset: u64,
         length: u64,
+        #[serde(default)]
         seq: u64,
         sha256: String,
         session: String,
     },
     ProviderStart {
+        #[serde(default)]
         request_id: String,
+        #[serde(default)]
         model: String,
+        #[serde(default)]
         session: String,
+        #[serde(default)]
         seq: u64,
+        #[serde(default)]
         upstream: String,
         subagent: Option<String>,
     },
     Ready {
+        #[serde(default)]
         request_id: String,
+        #[serde(default, alias = "session_id")]
         session: String,
+        #[serde(default)]
         model: String,
+        #[serde(default)]
         seq: u64,
+        #[serde(default)]
         upstream: String,
     },
     SubagentEnd {
         request_id: String,
         subagent_id: String,
         status: u16,
+        #[serde(default)]
         seq: u64,
     },
     SubagentEvent {
         request_id: String,
         subagent_id: String,
         event: String,
+        #[serde(default)]
         seq: u64,
         status: String,
         retry_after: Option<String>,
@@ -319,12 +340,14 @@ pub enum FromBridge {
         request_id: String,
         subagent_id: String,
         payload: Value,
+        #[serde(default)]
         seq: u64,
     },
     SubagentStart {
         request_id: String,
         subagent_id: String,
         model: String,
+        #[serde(default)]
         seq: u64,
         session: String,
     },
@@ -346,7 +369,8 @@ pub fn pack_ring_envelope(meta: &RingSubmitMeta, prompt: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&(m.len() as u32).to_le_bytes());
     out.extend_from_slice(&m);
     out.extend_from_slice(prompt);
-    out.push(0);
+    // The trailing NUL observed on the wire is frame padding, not payload: the
+    // bridge validates the prompt with `payload_len - 4 - meta_len`.
     out
 }
 

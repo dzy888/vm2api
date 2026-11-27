@@ -34,7 +34,7 @@ pub struct AgySlot {
     pub pid: Option<libc::pid_t>,
     pub pty: Option<std::os::fd::OwnedFd>,
     pub guard: Option<GuardHandle>,
-    pub ring: Option<ShmRingOwner>,
+    pub ring: Option<Arc<ShmRingOwner>>,
     pub work_dir: PathBuf,
     pub agy_home: PathBuf,
     pub last_used: Instant,
@@ -55,6 +55,16 @@ impl AgySlot {
     ) -> Result<Self, Failure> {
         crate::binding::validate_account_config(&config, &binding)
             .map_err(|e| Failure::new(400, "slot_binding_invalid", &e))?;
+        // Native bridge validates the session id: never spawn with an empty one.
+        let session = if session.trim().is_empty() {
+            if config.session_id.trim().is_empty() {
+                format!("sess-{:016x}", std::process::id() as u64)
+            } else {
+                config.session_id.clone()
+            }
+        } else {
+            session
+        };
         let agy_home = PathBuf::from(&binding.agy_home);
         let work_dir = PathBuf::from(&binding.run_dir);
         crate::binding::ensure_private_dir(&agy_home)
@@ -93,16 +103,32 @@ impl AgySlot {
                 .await
                 .map_err(|_| Failure::new(500, "slot_guard_error", "native socket accept timeout"))?
                 .map_err(|e| Failure::new(500, "slot_guard_error", &e.to_string()))?;
-        let bridge = crate::bridge::Bridge::from_stream(stream, &config)
+        let mut bridge = crate::bridge::Bridge::from_stream(stream, &config)
             .map_err(|e| Failure::new(500, "slot_guard_error", &e.to_string()))?;
         let ring = if config.require_shm {
-            Some(
+            Some(Arc::new(
                 ShmRingOwner::create(config.shm_request_bytes, config.shm_response_bytes)
                     .map_err(|e| Failure::new(503, "native_unavailable", &e.to_string()))?,
-            )
+            ))
         } else {
             None
         };
+        bridge.ring = ring.clone();
+        // Captured handshake order: agy sends `ready`, core answers `attached`,
+        // then passes memfd + request/response eventfds over SCM_RIGHTS.
+        bridge
+            .read_ready()
+            .await
+            .map_err(|e| Failure::new(500, "slot_handshake_failed", &e.to_string()))?;
+        bridge
+            .send_attached(&session, ring.is_some())
+            .await
+            .map_err(|e| Failure::new(500, "slot_handshake_failed", &e.to_string()))?;
+        if let Some(ring) = &ring {
+            bridge
+                .send_ring_fds(ring)
+                .map_err(|e| Failure::new(500, "slot_handshake_failed", &e.to_string()))?;
+        }
         // spawn::closure#7 — per-slot session journal/store.
         let journal = crate::journal::Journal::open_at(&work_dir.join("journal.jsonl")).ok();
         let slot = Self {
@@ -123,10 +149,6 @@ impl AgySlot {
             sessions: Default::default(),
             bridge,
         };
-        // spawn::closure#12 — attach the session over the ring.
-        if let Some(ring) = &slot.ring {
-            let _ = ring.push_request(0, 0x1, slot.session.as_bytes());
-        }
         Ok(slot)
     }
 
@@ -135,11 +157,29 @@ impl AgySlot {
         config: &crate::Config,
         binding: &AccountBindingConfig,
     ) -> Vec<String> {
-        let mut args = vec!["--pool-size".into(), config.max_concurrency.to_string()];
+        if !binding.agy_args.is_empty() {
+            return binding.agy_args.clone();
+        }
+        // `agy` has no --pool-size flag; the PTY path uses the normal CLI args.
+        let mut args = vec!["--dangerously-skip-permissions".into()];
+        let work = binding.run_dir.display().to_string();
+        if !work.is_empty() {
+            args.push("--add-dir".into());
+            args.push(work);
+        }
         if !binding.model.is_empty() {
             args.push("--model".into());
             args.push(binding.model.clone());
         }
+        args.push("--log-file".into());
+        args.push(
+            binding
+                .run_dir
+                .join("..")
+                .join("agy.log")
+                .display()
+                .to_string(),
+        );
         args
     }
 

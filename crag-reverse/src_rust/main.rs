@@ -5,6 +5,13 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 
 fn main() {
+    // PTY masters are opened O_ASYNC so readiness raises SIGIO; the default
+    // action would terminate the worker (exit 157). The real kernel installs
+    // handlers/ignores them and drives the PTY through AsyncFd instead.
+    unsafe {
+        libc::signal(libc::SIGIO, libc::SIG_IGN);
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut config_path: Option<PathBuf> = None;
     let mut out_path: Option<PathBuf> = None;

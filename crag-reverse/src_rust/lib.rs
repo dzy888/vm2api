@@ -70,7 +70,7 @@ pub struct Config {
     #[serde(default)]
     pub bridge_so: Option<PathBuf>,
     #[serde(default)]
-    pub verify_agy_sha256: String,
+    pub verify_agy_sha256: bool,
     #[serde(default)]
     pub strict_unique_proxy: bool,
     #[serde(default)]
@@ -201,7 +201,7 @@ impl Default for Config {
             resume_conversation_id: None,
             agy_bin: PathBuf::new(),
             bridge_so: None,
-            verify_agy_sha256: String::new(),
+            verify_agy_sha256: true,
             strict_unique_proxy: false,
             require_proxy_calibration: false,
             auto_calibrate_on_start: false,

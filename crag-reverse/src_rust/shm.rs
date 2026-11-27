@@ -1,19 +1,9 @@
-//! Reconstructed `craggemini_core::shm` — SPSC ring buffers over one memfd.
+//! Reconstructed `craggemini_core::shm` (0.5.2 wire layout).
 //!
-//! Wire layout, verified against a live capture of `craggemini` 0.4.13:
-//!
-//! ```text
-//! memfd: [0x1000 prefix][request ring cap][response ring cap]
-//! prefix: request header at +0x000, response header at +request_cap
-//! header: head u64 @+0x40, tail u64 @+0x80, pushed u64 @+0x140,
-//!         bytes u64 @+0x150, overflow u64 @+0x160
-//! frame:  magic u16=0xA602 | kind u16 | seq u32 | r1 u32 | r2 u32 |
-//!         payload_len u32 | crc32c u32 | payload | zero padding to 8
-//! crc32c covers frame_header[0..20] followed by the payload.
-//! ```
-//!
-//! `kind` observed: 1 = Submit, 0x0A = provider_sse, 0x0F = provider_start.
-//! Request payload: `u32 meta_len | meta JSON | prompt | NUL`.
+//! Two independent memfds, one per direction; each starts with a 0x1000 prefix:
+//! `AGYSHM02`, version 2, prefix 0x1000, ring capacity, 0x1000+capacity, 0.
+//! Frames are `magic u16=0xA602 | kind u16 | seq u32 | r1 u32 | r2 u32 |
+//! len u32 | crc32c u32 | payload`, crc over header[0..20]+payload.
 #![allow(dead_code, unused)]
 
 use std::io;
@@ -36,6 +26,9 @@ const OFF_TAIL: usize = 0x80;
 const OFF_PUSHED: usize = 0x140;
 const OFF_BYTES: usize = 0x150;
 const OFF_OVERFLOW: usize = 0x160;
+// Response ring uses the second cursor pair in the shared header.
+const OFF_RESP_HEAD: usize = 0xC0;
+const OFF_RESP_TAIL: usize = 0x100;
 
 #[repr(C)]
 pub struct FrameHeader {
@@ -48,28 +41,31 @@ pub struct FrameHeader {
     pub crc32c: u32,
 }
 
+pub struct RingSide {
+    pub file: std::fs::File,
+    pub map: std::cell::UnsafeCell<memmap2::MmapMut>,
+    pub cap: usize,
+}
+
 pub struct ShmRingOwner {
-    pub mapping: std::cell::UnsafeCell<memmap2::MmapMut>,
+    pub request: RingSide,
+    pub response: RingSide,
     pub request_eventfd: OwnedFd,
     pub response_eventfd: OwnedFd,
-    pub request_cap: usize,
-    pub response_cap: usize,
+    pub extra_eventfd: OwnedFd,
 }
 
 pub struct ShmOwner {
-    pub mapping: std::cell::UnsafeCell<memmap2::MmapMut>,
-    pub request_eventfd: OwnedFd,
-    pub response_eventfd: OwnedFd,
+    pub request: OwnedFd,
+    pub response: OwnedFd,
 }
 
 pub struct Mapping;
 
-// The ring is single-producer/single-consumer per direction; the owner is shared
-// behind Arc and every field is either an fd or the atomically-cursored mapping.
+unsafe impl Send for RingSide {}
+unsafe impl Sync for RingSide {}
 unsafe impl Send for ShmRingOwner {}
 unsafe impl Sync for ShmRingOwner {}
-unsafe impl Send for ShmOwner {}
-unsafe impl Sync for ShmOwner {}
 
 #[derive(Debug)]
 pub struct RingFrame {
@@ -86,11 +82,7 @@ fn round_pow2(n: usize) -> usize {
 fn notify(fd: &OwnedFd) {
     let one: u64 = 1;
     unsafe {
-        libc::write(
-            fd.as_raw_fd(),
-            (&one as *const u64).cast(),
-            std::mem::size_of::<u64>(),
-        );
+        libc::write(fd.as_raw_fd(), (&one as *const u64).cast(), 8);
     }
 }
 
@@ -106,93 +98,89 @@ fn crc32c(bytes: &[u8]) -> u32 {
     !crc
 }
 
+fn make_memfd(size: usize) -> io::Result<std::fs::File> {
+    unsafe {
+        let fd = crate::syscompat::memfd_create(
+            b"craggemini_ring\0".as_ptr().cast(),
+            crate::syscompat::MFD_CLOEXEC | crate::syscompat::MFD_ALLOW_SEALING,
+        );
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if libc::ftruncate(fd, size as libc::off_t) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        libc::fcntl(
+            fd,
+            crate::syscompat::F_ADD_SEALS,
+            crate::syscompat::F_SEAL_SEAL
+                | crate::syscompat::F_SEAL_SHRINK
+                | crate::syscompat::F_SEAL_GROW,
+        );
+        Ok(std::fs::File::from_raw_fd(fd))
+    }
+}
+
 impl ShmRingOwner {
-    /// `create_memfd` @ 0x2fc670: one sealed memfd with two rings and two eventfds.
     pub fn create(request_bytes: usize, response_bytes: usize) -> io::Result<Self> {
         let request_cap = round_pow2(request_bytes);
         let response_cap = round_pow2(response_bytes);
         let total = PREFIX + request_cap + response_cap;
+        let file = make_memfd(total)?;
         unsafe {
-            let name = b"craggemini_ring\0";
-            let fd = crate::syscompat::memfd_create(
-                name.as_ptr().cast(),
-                crate::syscompat::MFD_CLOEXEC | crate::syscompat::MFD_ALLOW_SEALING,
-            );
-            if fd < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            if libc::ftruncate(fd, total as libc::off_t) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            if libc::fcntl(
-                fd,
-                crate::syscompat::F_ADD_SEALS,
-                crate::syscompat::F_SEAL_SEAL
-                    | crate::syscompat::F_SEAL_SHRINK
-                    | crate::syscompat::F_SEAL_GROW,
-            ) != 0
-            {
-                return Err(io::Error::last_os_error());
-            }
-            // Ring header magic for both rings: "AGYSHM02", version 2.
             let mut base = vec![0u8; PREFIX];
             base[..8].copy_from_slice(b"AGYSHM02");
             base[8..12].copy_from_slice(&2u32.to_le_bytes());
             base[0x10..0x14].copy_from_slice(&(PREFIX as u32).to_le_bytes());
-            base[0x18..0x1c].copy_from_slice(&(request_cap as u32).to_le_bytes());
+            base[0x14..0x18].copy_from_slice(&(request_cap as u32).to_le_bytes());
+            base[0x18..0x1c].copy_from_slice(&((PREFIX + request_cap) as u32).to_le_bytes());
             base[0x1c..0x20].copy_from_slice(&(response_cap as u32).to_le_bytes());
-            libc::pwrite(fd, base.as_ptr().cast(), PREFIX, 0);
-            let e1 = crate::syscompat::eventfd(
+            libc::pwrite(file.as_raw_fd(), base.as_ptr().cast(), PREFIX, 0);
+        }
+        let (map, resp_map) = unsafe { (memmap2::MmapMut::map_mut(&file)?, memmap2::MmapMut::map_mut(&file)?) };
+        let other = file.try_clone()?;
+        unsafe {
+            let mk = || crate::syscompat::eventfd(
                 0,
                 crate::syscompat::EFD_CLOEXEC | crate::syscompat::EFD_NONBLOCK,
             );
-            if e1 < 0 {
+            let e1 = mk();
+            let e2 = mk();
+            let e3 = mk();
+            if e1 < 0 || e2 < 0 || e3 < 0 {
                 return Err(io::Error::last_os_error());
             }
-            let e2 = crate::syscompat::eventfd(
-                0,
-                crate::syscompat::EFD_CLOEXEC | crate::syscompat::EFD_NONBLOCK,
-            );
-            if e2 < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            let file = std::fs::File::from_raw_fd(fd);
-            let mapping = memmap2::MmapMut::map_mut(&file)?;
             Ok(Self {
-                mapping: std::cell::UnsafeCell::new(mapping),
+                request: RingSide { file, map: std::cell::UnsafeCell::new(map), cap: request_cap },
+                response: RingSide { file: other, map: std::cell::UnsafeCell::new(resp_map), cap: response_cap },
                 request_eventfd: OwnedFd::from_raw_fd(e1),
                 response_eventfd: OwnedFd::from_raw_fd(e2),
-                request_cap,
-                response_cap,
+                extra_eventfd: OwnedFd::from_raw_fd(e3),
             })
         }
     }
 
-    fn map(&self) -> &mut [u8] {
-        unsafe { &mut *self.mapping.get() }
+    fn map(side: &RingSide) -> &mut [u8] {
+        unsafe { &mut *side.map.get() }
     }
 
-    fn atom(&self, header: usize, off: usize) -> &AtomicU64 {
-        unsafe { &*self.map().as_ptr().add(header + off).cast::<AtomicU64>() }
+    fn atom<'a>(side: &'a RingSide, off: usize) -> &'a AtomicU64 {
+        unsafe { &*Self::map(side).as_ptr().add(off).cast::<AtomicU64>() }
     }
 
-    /// `push_request` @ 0x2fcb20: reserve, crc32c(header+payload), wrap-copy, notify.
     pub fn push_request(&self, seq: u32, kind: u16, payload: &[u8]) -> io::Result<()> {
-        let ring = self.request_cap;
+        let ring = self.request.cap;
         let mask = (ring - 1) as u64;
         let frame_len = ((payload.len() + FRAME_HEADER + 7) & !7) as u64;
         if payload.len() > MAX_FRAME || frame_len as usize > ring {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "ring frame exceeds total ring capacity",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "ring frame too large"));
         }
-        let head_at = self.atom(0, OFF_HEAD);
-        let tail_at = self.atom(0, OFF_TAIL);
+        let head_at = Self::atom(&self.request, OFF_HEAD);
+        let tail_at = Self::atom(&self.request, OFF_TAIL);
         let head = head_at.load(Ordering::Acquire);
         let tail = tail_at.load(Ordering::Acquire);
         if head.wrapping_sub(tail) + frame_len > ring as u64 {
-            self.atom(0, OFF_OVERFLOW).fetch_add(1, Ordering::Relaxed);
+            Self::atom(&self.request, OFF_OVERFLOW).fetch_add(1, Ordering::Relaxed);
             return Err(io::Error::new(io::ErrorKind::WouldBlock, "ring full"));
         }
         let mut hdr = FrameHeader {
@@ -204,27 +192,19 @@ impl ShmRingOwner {
             payload_len: payload.len() as u32,
             crc32c: 0,
         };
-        let hdr_bytes = unsafe {
-            std::slice::from_raw_parts(
-                (&hdr as *const FrameHeader).cast::<u8>(),
-                FRAME_HEADER,
-            )
+        let bytes = unsafe {
+            std::slice::from_raw_parts((&hdr as *const FrameHeader).cast::<u8>(), FRAME_HEADER)
         };
         let mut crc_input = Vec::with_capacity(0x14 + payload.len());
-        crc_input.extend_from_slice(&hdr_bytes[..0x14]);
+        crc_input.extend_from_slice(&bytes[..0x14]);
         crc_input.extend_from_slice(payload);
         hdr.crc32c = crc32c(&crc_input);
-        let hdr_bytes = unsafe {
-            std::slice::from_raw_parts(
-                (&hdr as *const FrameHeader).cast::<u8>(),
-                FRAME_HEADER,
-            )
+        let bytes = unsafe {
+            std::slice::from_raw_parts((&hdr as *const FrameHeader).cast::<u8>(), FRAME_HEADER)
         };
-
         let pos = head & mask;
-        let map = self.map();
-        let start = PREFIX + pos as usize;
-        for (i, b) in hdr_bytes.iter().enumerate() {
+        let map = Self::map(&self.request);
+        for (i, b) in bytes.iter().enumerate() {
             map[PREFIX + ((pos as usize + i) & (ring - 1))] = *b;
         }
         for (i, b) in payload.iter().enumerate() {
@@ -233,34 +213,28 @@ impl ShmRingOwner {
         for i in 0..(frame_len as usize - FRAME_HEADER - payload.len()) {
             map[PREFIX + ((pos as usize + FRAME_HEADER + payload.len() + i) & (ring - 1))] = 0;
         }
-        let _ = start;
         head_at.store(head.wrapping_add(frame_len), Ordering::Release);
-        self.atom(0, OFF_PUSHED).fetch_add(1, Ordering::Relaxed);
-        self.atom(0, OFF_BYTES).fetch_add(payload.len() as u64, Ordering::Relaxed);
+        Self::atom(&self.request, OFF_PUSHED).fetch_add(1, Ordering::Relaxed);
+        Self::atom(&self.request, OFF_BYTES).fetch_add(payload.len() as u64, Ordering::Relaxed);
         notify(&self.request_eventfd);
         Ok(())
     }
 
-    /// `drain_responses` @ 0x2fcf80: parse frames from the response ring.
     pub fn drain_responses(&self, max: usize) -> io::Result<Vec<RingFrame>> {
-        let ring = self.response_cap;
-        let header = PREFIX + self.request_cap;
-        let head_at = self.atom(header, OFF_HEAD);
-        let tail_at = self.atom(header, OFF_TAIL);
+        let ring = self.response.cap;
+        let base = PREFIX + self.request.cap;
+        let head_at = Self::atom(&self.response, OFF_RESP_HEAD);
+        let tail_at = Self::atom(&self.response, OFF_RESP_TAIL);
         let tail = tail_at.load(Ordering::Acquire);
         let head = head_at.load(Ordering::Acquire);
         let available = head.wrapping_sub(tail) as usize;
-        let map = self.map();
+        let map = Self::map(&self.response);
         let mut out = Vec::new();
         let mut pos = tail;
-        while (pos.wrapping_sub(tail) as usize) < available
-            && out.len() < max
-            && available - pos.wrapping_sub(tail) as usize >= FRAME_HEADER
-        {
-            let slot = header + (pos as usize & (ring - 1));
+        while (pos.wrapping_sub(tail) as usize) + FRAME_HEADER <= available && out.len() < max {
             let mut hdr = [0u8; FRAME_HEADER];
             for (i, b) in hdr.iter_mut().enumerate() {
-                *b = map[header + ((pos as usize + i) & (ring - 1))];
+                *b = map[base + ((pos as usize + i) & (ring - 1))];
             }
             let magic = u16::from_le_bytes([hdr[0], hdr[1]]);
             let kind = u16::from_le_bytes([hdr[2], hdr[3]]);
@@ -272,7 +246,7 @@ impl ShmRingOwner {
             }
             let mut payload = vec![0u8; len];
             for (i, b) in payload.iter_mut().enumerate() {
-                *b = map[header + ((pos as usize + FRAME_HEADER + i) & (ring - 1))];
+                *b = map[base + ((pos as usize + FRAME_HEADER + i) & (ring - 1))];
             }
             let mut crc_input = Vec::with_capacity(0x14 + len);
             crc_input.extend_from_slice(&hdr[..0x14]);
@@ -280,9 +254,7 @@ impl ShmRingOwner {
             if crc32c(&crc_input) != crc {
                 break;
             }
-            let _ = slot;
-            let frame_len = ((len + FRAME_HEADER + 7) & !7) as u64;
-            pos = pos.wrapping_add(frame_len);
+            pos = pos.wrapping_add(((len + FRAME_HEADER + 7) & !7) as u64);
             out.push(RingFrame {
                 kind,
                 seq,
@@ -295,15 +267,24 @@ impl ShmRingOwner {
         }
         Ok(out)
     }
+
+    pub fn fds(&self) -> [i32; 5] {
+        [
+            self.request.file.as_raw_fd(),
+            self.request.file.as_raw_fd(),
+            self.request_eventfd.as_raw_fd(),
+            self.response_eventfd.as_raw_fd(),
+            self.extra_eventfd.as_raw_fd(),
+        ]
+    }
 }
 
 impl ShmOwner {
     pub fn create(request_bytes: usize, response_bytes: usize) -> io::Result<Self> {
         let owner = ShmRingOwner::create(request_bytes, response_bytes)?;
         Ok(Self {
-            mapping: owner.mapping,
-            request_eventfd: owner.request_eventfd,
-            response_eventfd: owner.response_eventfd,
+            request: owner.request.file.into(),
+            response: owner.response.file.into(),
         })
     }
 }
