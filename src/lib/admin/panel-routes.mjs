@@ -3,9 +3,7 @@
  * envelopes are unchanged; slot start/reload go through startSlotReady.
  */
 import { setSlotDesktopEnabled, slotDesktopStatus } from '../vm/slot-desktop.mjs'
-import { installGeminiPayload, readPinnedCragGeminiPublicKeySha256 } from '../gemini/payload.mjs'
 import { validateGeminiRoutingPatch } from '../gemini/routing-config.mjs'
-import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -813,6 +811,7 @@ export function createPanelHandler(ctx) {
     terminal: ctx.geminiTerminal,
     cragSubscription: ctx.geminiCragSubscription,
     geminiOwnersRepo: ctx.geminiOwnersRepo || null,
+    projectRoot: ctx.paths?.project || process.cwd(),
     geminiSlotPrefs: ctx.geminiSlotPrefs || null,
     geminiScheduler: ctx.geminiScheduler || null,
     panelUsers: ctx.panelUsers || null,
@@ -3629,60 +3628,6 @@ export function createPanelHandler(ctx) {
             installations,
           }),
         )
-      }
-      if (req.method === 'POST' && p === '/api/panel/gemini/kernel-self/install') {
-        const selfDir = path.join(cfg.paths.project, 'share', 'gemini', 'self')
-        const currentDir = path.join(cfg.paths.project, 'share', 'gemini', 'current')
-        try {
-          const pinned = readPinnedCragGeminiPublicKeySha256(cfg.paths.project)
-          if (!pinned)
-            return json(res, 500, {
-              ok: false,
-              error: { code: 'gemini_self_authority_missing', message: '发行包缺少公钥指纹，无法校验自研内核' },
-            })
-          const pem = fs.readFileSync(path.join(selfDir, 'crag-license-public.pem'))
-          if (crypto.createHash('sha256').update(pem).digest('hex') !== pinned)
-            return json(res, 400, {
-              ok: false,
-              error: { code: 'gemini_self_authority_mismatch', message: '自研内核公钥与发行包不一致' },
-            })
-          // agy stays out of git (267 MB); reuse the verified installed copy.
-          const selfAgy = path.join(selfDir, 'agy')
-          if (!fs.existsSync(selfAgy)) {
-            const installedAgy = path.join(currentDir, 'agy')
-            if (!fs.existsSync(installedAgy))
-              return json(res, 400, {
-                ok: false,
-                error: { code: 'gemini_self_agy_missing', message: 'share/gemini/self/agy 缺失，且没有可复用的已安装 agy' },
-              })
-            fs.copyFileSync(installedAgy, selfAgy)
-            fs.chmodSync(selfAgy, 0o755)
-          }
-          // agy 1.5.9 eligibility gate must be patched to match the manifest digest.
-          const patcher = path.join(cfg.paths.project, 'scripts', 'gemini_agy_patch.py')
-          try {
-            execFileSync('python3', ['-I', patcher, 'patch', '--no-backup', '--path', selfAgy], {
-              stdio: 'ignore',
-              timeout: 120_000,
-            })
-          } catch {
-            return json(res, 400, {
-              ok: false,
-              error: { code: 'gemini_self_agy_patch_failed', message: 'agy eligibility 补丁应用失败' },
-            })
-          }
-          const version = await installGeminiPayload(selfDir, currentDir, pem)
-          return json(res, 200, panel.ok({ version }))
-        } catch (error) {
-          const code =
-            typeof error?.code === 'string' && /^[a-z][a-z0-9_]+$/.test(error.code)
-              ? error.code
-              : 'gemini_self_install_failed'
-          return json(res, 400, {
-            ok: false,
-            error: { code, message: error?.message || '安装自研内核失败' },
-          })
-        }
       }
       if (req.method === 'GET' && p === '/api/panel/kernels/releases') {
         try {

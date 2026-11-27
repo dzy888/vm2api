@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 import http from 'node:http'
 import { isIP } from 'node:net'
 import path from 'node:path'
@@ -29,6 +31,7 @@ import {
   sessionIdForLog,
 } from '../protocol/log-fields.mjs'
 import { gpsoauthLogin } from './auto-oauth.mjs'
+import { installGeminiPayload, readPinnedCragGeminiPublicKeySha256 } from './payload.mjs'
 import { createGeminiTerminalBridge } from './terminal.mjs'
 import { createGeminiMaintenanceHandler } from './maintenance.mjs'
 import { ANTIGRAVITY_PROVIDERS, ANTIGRAVITY_QUOTA_GROUPS, isAntigravityRoutedModel } from './model-catalog.mjs'
@@ -1134,6 +1137,7 @@ export function reconcileGeminiAccountCheck(
  */
 export async function checkGeminiAccounts({
   callHost = callGeminiHost,
+  projectRoot = null,
   proxyPool,
   slotPrefs = null,
   geminiScheduler = null,
@@ -1461,6 +1465,45 @@ export function createGeminiPanelHandler({
               ? error.code
               : 'gemini_auto_oauth_failed'
           return fail(HOST_ERRORS[code]?.[0] || 502, code, error?.message)
+        }
+      }
+      if (req.method === 'POST' && pathname === `${PANEL_PATH}/kernel-self/install`) {
+        if (!projectRoot) return fail(500, 'gemini_self_project_missing', '控制面未提供安装根目录')
+        const selfDir = path.join(projectRoot, 'share', 'gemini', 'self')
+        const currentDir = path.join(projectRoot, 'share', 'gemini', 'current')
+        try {
+          const pinned = readPinnedCragGeminiPublicKeySha256(projectRoot)
+          if (!pinned)
+            return fail(500, 'gemini_self_authority_missing', '发行包缺少公钥指纹，无法校验自研内核')
+          const pem = fs.readFileSync(path.join(selfDir, 'crag-license-public.pem'))
+          if (crypto.createHash('sha256').update(pem).digest('hex') !== pinned)
+            return fail(400, 'gemini_self_authority_mismatch', '自研内核公钥与发行包不一致')
+          const selfAgy = path.join(selfDir, 'agy')
+          if (!fs.existsSync(selfAgy)) {
+            const installedAgy = path.join(currentDir, 'agy')
+            if (!fs.existsSync(installedAgy))
+              return fail(400, 'gemini_self_agy_missing', 'share/gemini/self/agy 缺失，且没有可复用的已安装 agy')
+            fs.copyFileSync(installedAgy, selfAgy)
+            fs.chmodSync(selfAgy, 0o755)
+          }
+          const patcher = path.join(projectRoot, 'scripts', 'gemini_agy_patch.py')
+          try {
+            execFileSync('python3', ['-I', patcher, 'patch', '--no-backup', '--path', selfAgy], {
+              stdio: 'ignore',
+              timeout: 120_000,
+            })
+          } catch {
+            return fail(400, 'gemini_self_agy_patch_failed', 'agy eligibility 补丁应用失败')
+          }
+          const version = await installGeminiPayload(selfDir, currentDir, pem)
+          geminiScheduler?.invalidateCatalogCache?.()
+          return ok({ version })
+        } catch (error) {
+          const code =
+            typeof error?.code === 'string' && /^[a-z][a-z0-9_]+$/.test(error.code)
+              ? error.code
+              : 'gemini_self_install_failed'
+          return fail(400, code, error?.message)
         }
       }
       if (req.method === 'POST' && pathname === `${PANEL_PATH}/environments`) {
