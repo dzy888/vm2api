@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router'
 import type { CragLicenseStatus, Vm } from '@/types/panel-vm'
 import {
   CheckCircle2,
+  Cpu,
   Download,
   KeyRound,
   Loader2,
@@ -14,7 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { isApiError } from '@/lib/api'
+import { api, isApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { isCodexVm } from '@/lib/vm-kind'
 import { Badge } from '@/components/ui/badge'
@@ -54,7 +55,11 @@ import {
   type KernelTarget,
 } from './queries'
 
-const KERNEL_NAMES = { 'cli-node': 'cli-node', crag: 'CRAG' } as const
+const KERNEL_NAMES = {
+  'cli-node': 'cli-node',
+  crag: 'CRAG',
+  'gemini-self': '自研Gemini内核',
+} as const
 const LICENSE_LABELS: Record<CragLicenseStatus['status'], string> = {
   valid: '授权有效',
   unlicensed: '未授权',
@@ -106,6 +111,7 @@ export function WrapSamplePage() {
   const [selectedTags, setSelectedTags] = useState<Record<KernelId, string>>({
     'cli-node': 'latest',
     crag: 'latest',
+    'gemini-self': 'latest',
   })
   const [drafts, setDrafts] = useState<Record<string, KernelId>>({})
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
@@ -146,6 +152,20 @@ export function WrapSamplePage() {
     const version = /(?:^|-)(\d+\.\d+\.\d+)(?:-|$)/.exec(named || tag)?.[1]
     return pinned || version || named || tag
   }
+
+  const installSelf = useMutation({
+    mutationFn: () =>
+      api<{ version: string }>('/api/panel/gemini/kernel-self/install', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (data) => {
+      toast.success(`自研 Gemini 内核 ${data?.version || ''} 已安装`)
+      void qc.invalidateQueries({ queryKey: kernelCatalogQueryOptions().queryKey })
+    },
+    onError: (error) =>
+      toast.error(isApiError(error) ? error.message : '安装自研内核失败'),
+  })
 
   const pull = useMutation({
     mutationFn: pullKernelRelease,
@@ -477,7 +497,12 @@ export function WrapSamplePage() {
               >
                 <div className='min-w-0'>
                   <div className='flex flex-wrap items-center gap-2.5'>
-                    {product.paid ? (
+                    {product.self ? (
+                      <Cpu
+                        aria-hidden='true'
+                        className='size-5 text-muted-foreground'
+                      />
+                    ) : product.paid ? (
                       <KeyRound
                         aria-hidden='true'
                         className='size-5 text-muted-foreground'
@@ -492,7 +517,11 @@ export function WrapSamplePage() {
                       {KERNEL_NAMES[product.id]}
                     </h3>
                     <Badge variant='secondary'>
-                      {product.paid ? '付费 · 授权码' : '默认 · 免费'}
+                      {product.self
+                        ? '自研 · 本地'
+                        : product.paid
+                          ? '付费 · 授权码'
+                          : '默认 · 免费'}
                     </Badge>
                   </div>
                   <div className='mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-base sm:text-sm'>
@@ -528,6 +557,11 @@ export function WrapSamplePage() {
                       </Link>
                     </>
                   ) : null}
+                  {product.self ? (
+                    <p className='mt-2 text-base text-muted-foreground sm:text-sm'>
+                      从 share/gemini/self 安装本地自研包（跳过付费发行版本）。
+                    </p>
+                  ) : null}
                   {product.error && !product.ready ? (
                     <p className='mt-2 text-base break-words text-destructive sm:text-sm'>
                       {product.error}
@@ -549,6 +583,7 @@ export function WrapSamplePage() {
                   ) : null}
                 </div>
                 <div className='flex flex-wrap gap-2'>
+                  {product.id === 'gemini-self' ? null : (
                   <Select
                     value={selectedTags[product.id]}
                     disabled={!canEdit || busy}
@@ -612,6 +647,20 @@ export function WrapSamplePage() {
                       ) : null}
                     </SelectContent>
                   </Select>
+                  )}
+                  {product.id === 'gemini-self' ? (
+                    <Button
+                      className='h-11'
+                      aria-label='安装自研 Gemini 内核'
+                      disabled={!canEdit || busy}
+                      loading={installSelf.isPending}
+                      onClick={() => installSelf.mutate()}
+                    >
+                      <Download aria-hidden='true' />
+                      安装自研内核
+                    </Button>
+                  ) : (
+                  <>
                   <Button
                     variant='outline'
                     className='h-11'
@@ -646,6 +695,8 @@ export function WrapSamplePage() {
                   >
                     应用缓存到全部槽位
                   </Button>
+                  </>
+                  )}
                   {product.id === 'crag' && catalog.data?.crag_pin ? (
                     <Button
                       className='h-11'

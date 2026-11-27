@@ -83,17 +83,19 @@ async function route(root, method, endpoint, body, options = {}) {
   return response
 }
 
-test('catalog has exactly two public products and lists licenses without initializing any identity', async (t) => {
+test('catalog has the three public products and lists licenses without initializing any identity', async (t) => {
   const { root, vms } = fixture(t)
   const records = vms.map((vm) => fs.readFileSync(path.join(root, 'vms', `${vm.id}.json`)))
   const response = await route(root, 'GET', '')
   assert.equal(response.status, 200)
   assert.deepEqual(
     response.body.data.kernels.map((item) => item.id),
-    ['cli-node', 'crag'],
+    ['cli-node', 'crag', 'gemini-self'],
   )
   assert.equal(response.body.data.kernels[0].paid, false)
   assert.equal(response.body.data.kernels[1].paid, true)
+  assert.equal(response.body.data.kernels[2].self, true)
+  assert.equal(response.body.data.kernels[2].name, '自研Gemini内核')
   assert.deepEqual(Object.keys(response.body.data.licenses).sort(), ['vm-13', 'vm-14'])
   assert.equal(response.body.data.licenses['vm-13'].valid, false)
   assert.doesNotMatch(

@@ -1,0 +1,62 @@
+{
+  "family": "crag",
+  "version": "v1",
+  "software_version": "0.5.0",
+  "arch": "amd64",
+  "runtime": "native",
+  "entrypoint": "craggemini",
+  "encrypted": true,
+  "authorization": {
+    "scheme": "ed25519-x25519-v1",
+    "product": "craggemini",
+    "public_key": "1CjT6Uvf-iJYmLpEdcnA8od_wb2bU75jByC5ag3QzbY",
+    "public_key_id": "f9572077c22c290ce6e38df9f89d6da82bae08a84542645f2a9f67dff69e01c4"
+  },
+  "payload": {
+    "path": "craggemini.payload.enc",
+    "product": "craggemini",
+    "format": "CRAGV2E1",
+    "algorithm": "aes-256-gcm",
+    "key_id": "d24708771dcfa242e133e6097136b1c734bec2eed850a0f2a9c756d1f46b56f5",
+    "plaintext_sha256": "c04fdcea223f35540fec1ca1328f3998ea91abc163c123b5a6d2aab7484b3fc1",
+    "ciphertext_sha256": "87ec47144743a3eefb75127740a7373aabfaf39b65aeeb5d4d70c9ac1e75b9ca",
+    "signature": "DxVimmKKbupjzkrfkz3kP2bRjEgAPiBpLrLZVW1LZoaCvdnkOkg87u3rASu1UpatNFqM72ZCOp6NZA_DHvwmCw"
+  },
+  "capabilities": [
+    "native_tui",
+    "streaming",
+    "cancel_v1",
+    "gateway_policy_v1",
+    "provider_status_v1",
+    "per_instance_license",
+    "encrypted_payload",
+    "crag_subscription_v2",
+    "shm_dispatch_v1",
+    "shm_ring_v2",
+    "memfd_scm_rights_v1",
+    "eventfd_wakeup_v1",
+    "native_tools_web_v1",
+    "native_tools_image_v1",
+    "native_subagents_v1",
+    "live_control_v1",
+    "mcp_bridge_v1",
+    "conversation_resume_v1",
+    "non_streaming_json_v1",
+    "system_prompt_hook_v1",
+    "pool_policy_v1",
+    "account_session_isolation_v1",
+    "thinking_control_v1",
+    "multiprotocol_v1",
+    "error_body_hook_v1",
+    "per_account_license_v1",
+    "tool_filter_hook_v1",
+    "acp_headless_v1"
+  ],
+  "sha256": {
+    "craggemini": "66b33e92d2a98ef807ebcd93baff902ee65e1cb6f853a1a0881da5ae8d5bf0f4",
+    "craggemini.payload.enc": "87ec47144743a3eefb75127740a7373aabfaf39b65aeeb5d4d70c9ac1e75b9ca",
+    "libagy_bridge.so": "5eef4ca5a97addacbfac240156a06967948c6f4ddc75eee5233d1ee5083d2204",
+    "crag-license-public.pem": "f6e3ef3a50fd49abd4ce3519db512af74fc438b47b1bbec83f6602ebe4b3930a",
+    "agy": "39816d49d5ab92229952987225c23ea3fed7580699dcb4a444e0388e0ac1ce43"
+  }
+}

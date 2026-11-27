@@ -365,8 +365,9 @@ function publicProduct(id, ready, meta = {}, code) {
     typeof meta.updated_at === 'string' && Number.isFinite(Date.parse(meta.updated_at)) ? meta.updated_at : null
   return {
     id,
-    name: id === 'crag' ? 'CRAG' : 'cli-node',
+    name: id === 'crag' ? 'CRAG' : id === 'gemini-self' ? '自研Gemini内核' : 'cli-node',
     paid: id === 'crag',
+    ...(id === 'gemini-self' ? { self: true } : {}),
     ready,
     version,
     ...(isReleaseTag(meta.tag) ? { release_tag: meta.tag } : {}),
@@ -460,7 +461,24 @@ export function describeKernelCatalog(projectRoot, runtimeOptions) {
       error.code === 'kernel_cache_invalid' ? error.code : 'crag_v2_package_missing',
     )
   }
-  return [cli, crag]
+  let geminiSelf
+  try {
+    const selfDir = path.join(projectRoot, 'share', 'gemini', 'self')
+    const manifest = jsonFile(path.join(selfDir, 'manifest.json'), 64 * 1024)
+    const ready =
+      typeof manifest.software_version === 'string' &&
+      ['craggemini', 'craggemini.payload.enc', 'libagy_bridge.so', 'manifest.json'].every((name) => {
+        try {
+          return fs.statSync(path.join(selfDir, name)).isFile()
+        } catch {
+          return false
+        }
+      })
+    geminiSelf = publicProduct('gemini-self', ready, { version: manifest.software_version }, 'gemini_self_missing')
+  } catch {
+    geminiSelf = publicProduct('gemini-self', false, {}, 'gemini_self_missing')
+  }
+  return [cli, crag, geminiSelf]
 }
 
 function limitBytes(max, code, expected = 0, sha256 = '') {

@@ -2,12 +2,14 @@ import { queryOptions } from '@tanstack/react-query'
 import type { CragLicenseStatus } from '@/types/panel-vm'
 import { ApiError, api, isApiError } from '@/lib/api'
 
-export type KernelId = 'cli-node' | 'crag'
+export type KernelId = 'cli-node' | 'crag' | 'gemini-self'
 
 export type KernelProduct = {
   id: KernelId
   name: string
   paid: boolean
+  /** Locally supplied reverse-engineered kernel (share/gemini/self). */
+  self?: boolean
   ready: boolean
   version: string | null
   release_tag?: string

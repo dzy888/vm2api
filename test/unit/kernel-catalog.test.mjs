@@ -152,7 +152,7 @@ function writeIssuerPins(root, files) {
   fs.writeFileSync(path.join(root, 'deploy/payload.json'), JSON.stringify({ crag_release: 'v1.2.3', files }))
 }
 
-test('catalog exposes exactly two products with honest versions and no paths or license initialization', (t) => {
+test('catalog exposes three products with honest versions and no paths or license initialization', (t) => {
   const root = fixture(t)
   const pkg = seedEncryptedPackage(root)
   const template = path.join(root, 'share/wrap-cli')
@@ -165,8 +165,10 @@ test('catalog exposes exactly two products with honest versions and no paths or 
     [
       ['cli-node', false, true, null],
       ['crag', true, true, 'v2'],
+      ['gemini-self', false, false, null],
     ],
   )
+  assert.equal(rows[2].self, true)
   assert.equal(rows[0].updated_at, null)
   assert.equal(JSON.stringify(rows).includes(root), false)
   assert.equal(JSON.stringify(rows).includes('public_key'), false)

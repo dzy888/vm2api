@@ -20,7 +20,14 @@ hypervisor/*.env
 /bin/
 /web/dist/
 /share/crag/
-/share/gemini/
+'/share/gemini/*
+!/share/gemini/self/
+/share/gemini/self/*
+!/share/gemini/self/manifest.json
+!/share/gemini/self/craggemini
+!/share/gemini/self/craggemini.payload.enc
+!/share/gemini/self/libagy_bridge.so
+!/share/gemini/self/crag-license-public.pem
 /share/wrap-cli/*
 /share/wrap-cli-releases/
 !/share/wrap-cli/kin-kernel
