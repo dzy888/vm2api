@@ -1273,6 +1273,7 @@ export function createGeminiPanelHandler({
   requestLog = null,
   callHost = callGeminiHost,
   billingReady = Boolean(requestLog),
+  projectRoot = null,
 }) {
   const maintenance = createGeminiMaintenanceHandler({ json, readBody })
   const slotPrefs = geminiSlotPrefs || createGeminiSlotPrefs()
@@ -1495,7 +1496,19 @@ export function createGeminiPanelHandler({
           } catch {
             return fail(400, 'gemini_self_agy_patch_failed', 'agy eligibility 补丁应用失败')
           }
-          const version = await installGeminiPayload(selfDir, currentDir, pem)
+          // installGeminiPayload renames staging onto the destination, which
+          // fails while `current` exists: move it aside and restore on error.
+          const backup = `${currentDir}.prev-${Date.now()}`
+          const hadCurrent = fs.existsSync(currentDir)
+          if (hadCurrent) fs.renameSync(currentDir, backup)
+          let version
+          try {
+            version = await installGeminiPayload(selfDir, currentDir, pem)
+          } catch (error) {
+            if (hadCurrent && !fs.existsSync(currentDir)) fs.renameSync(backup, currentDir)
+            throw error
+          }
+          if (hadCurrent) fs.rmSync(backup, { recursive: true, force: true })
           geminiScheduler?.invalidateCatalogCache?.()
           return ok({ version })
         } catch (error) {
