@@ -72,6 +72,22 @@ Response `kind` is a *class*, not the event tag: `0x0A` = raw SSE text frame,
 Observed `type` values: `accepted`, `provider_start`, `provider_sse`, `provider_end`,
 `idle`. Both classes share the same header and CRC.
 
+### Exact event shapes (0.5.2, captured from a live turn)
+
+```json
+{"native_conversation_id":"a4ad2d8e-…","request_id":"dbg0001","type":"accepted"}
+{"attempt_id":"main","content_type":"text/event-stream","headers":{"content_type":"text/event-stream"},"request_id":"dbg0001","status":200,"type":"provider_start"}
+{"attempt_id":"main","complete":true,"request_id":"dbg0001","type":"provider_end"}
+```
+
+A **clean** `provider_end` carries no `status` (and no `retry_after`); success is
+implied by `complete:true`. Only the failure path adds `status`/`reason`/`detail`/
+`retry_after`. A deserializer that requires `status` on every `provider_end` drops the
+terminal frame and surfaces `missing field 'status'` after the model already answered.
+
+`provider_sse` payloads on the wire are provider SSE text (`data: {"response":{…}}`),
+with the answer under `response.candidates[].content.parts[].text`.
+
 ## 4. Submit payload
 
 ```text

@@ -15,19 +15,28 @@ pub const READ_BUFFER: usize = 0x2000;
 
 /// Extract the assistant text carried by one raw SSE chunk (`data: {...}`).
 fn sse_text(raw: &str) -> String {
+    let mut out = String::new();
     for line in raw.lines() {
-        if let Some(data) = line.strip_prefix("data: ") {
-            if let Ok(value) = serde_json::from_str::<Value>(data) {
-                if let Some(text) = value
-                    .pointer("/candidates/0/content/parts/0/text")
-                    .and_then(Value::as_str)
-                {
-                    return text.to_string();
+        let Some(data) = line.strip_prefix("data: ").or_else(|| line.strip_prefix("data:")) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(data) else {
+            continue;
+        };
+        // Two wrapper shapes appear on the wire: bare Gemini
+        // (`candidates[...]`) and the provider envelope (`response.candidates[...]`).
+        for base in ["/candidates/0/content/parts", "/response/candidates/0/content/parts"] {
+            let Some(parts) = value.pointer(base).and_then(Value::as_array) else {
+                continue;
+            };
+            for part in parts {
+                if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    out.push_str(text);
                 }
             }
         }
     }
-    String::new()
+    out
 }
 
 /// `bridge::VerifiedExeKey` — file identity used to re-validate a copied worker.
@@ -395,7 +404,19 @@ impl Bridge {
                         stop = Some(s.to_string());
                     }
                 }
-                FromBridge::ProviderEnd { status, .. } => {
+                FromBridge::ProviderEnd {
+                    status, complete, ..
+                } => {
+                    // Clean completion omits `status` on the wire; map it to 200.
+                    let status = if status == 0 {
+                        if complete {
+                            200
+                        } else {
+                            502
+                        }
+                    } else {
+                        status
+                    };
                     return Ok(crate::server::JsonTurnResult {
                         status,
                         body: serde_json::json!({ "text": text, "stop_reason": stop }),
@@ -424,6 +445,21 @@ impl Bridge {
     }
 
     async fn next_frame(&self) -> Result<FromBridge, Failure> {
+        // With shm enabled, provider frames come back on the response ring; the
+        // native socket only carried the handshake by this point. Poll the ring
+        // first (like `stream_task` does) so the JSON path is not parked on an
+        // idle socket until the first-byte timeout.
+        if let Some(ring) = &self.ring {
+            loop {
+                let frames = ring
+                    .drain_responses(1)
+                    .map_err(|e| Failure::new(502, "provider_sse", &e.to_string()))?;
+                if let Some(frame) = frames.first() {
+                    return Self::decode_frame(frame);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            }
+        }
         if let Some(native) = &self.native {
             use tokio::io::AsyncBufReadExt;
             let mut stream = native.lock().await;
@@ -434,6 +470,9 @@ impl Bridge {
                 .map_err(|e| Failure::new(502, "native_failed", &e.to_string()))?;
             if n == 0 {
                 return Err(Failure::new(502, "native_failed", "native socket closed"));
+            }
+            if std::env::var_os("CRAGGEMINI_DEBUG_FRAMES").is_some() {
+                eprintln!("FRAME {}", line.trim_end());
             }
             return serde_json::from_str(&line)
                 .map_err(|e| Failure::new(502, "provider_sse", &e.to_string()));
@@ -481,6 +520,13 @@ impl Bridge {
                     seq: frame.seq as u64,
                 });
             }
+        }
+        if std::env::var_os("CRAGGEMINI_DEBUG_FRAMES").is_some() {
+            eprintln!(
+                "FRAME kind={} {}",
+                frame.kind,
+                String::from_utf8_lossy(&frame.payload)
+            );
         }
         ring_decode(&frame.payload).map_err(|e| Failure::new(502, "provider_sse", &e))
     }
@@ -575,6 +621,9 @@ async fn stream_task(
                 {
                     return Err(Failure::new(502, "native_failed", "native socket closed"));
                 }
+                if std::env::var_os("CRAGGEMINI_DEBUG_FRAMES").is_some() {
+                    eprintln!("FRAME {}", line.trim_end());
+                }
                 serde_json::from_str::<FromBridge>(&line)
                     .map_err(|e| Failure::new(502, "provider_sse", &e.to_string()))
             } else {
@@ -620,10 +669,21 @@ async fn stream_task(
             FromBridge::NativeToolInline { payload, .. } => {
                 format!("event: native_tool_payload\ndata: {payload}\n\n")
             }
-            FromBridge::ProviderEnd { status, .. } => {
+            FromBridge::ProviderEnd {
+                status, complete, ..
+            } => {
+                let status = if status == 0 {
+                    if complete {
+                        200
+                    } else {
+                        502
+                    }
+                } else {
+                    status
+                };
                 let _ = tx
                     .send(Ok(bytes::Bytes::from(format!(
-                        "event: provider_end\ndata: {{\"status\":{status}}}\n\n"
+                        "event: provider_end\ndata: {{\"status\":{status},\"complete\":{complete}}}\n\n"
                     ))))
                     .await;
                 return;

@@ -197,7 +197,17 @@ fn main() {
             let raw = std::fs::read(path).expect("cannot read kernel config");
             let config: craggemini_core::Config =
                 serde_json::from_slice(&raw).expect("cannot decode kernel config");
-            let device = read_identity(&config.license_dir).expect("device identity missing");
+            let device = read_identity(&config.license_dir).unwrap_or_else(|_| {
+                serde_json::from_value(serde_json::json!({
+                    "version": 1,
+                    "product": "craggemini",
+                    "vm_id": config.vm_id,
+                    "machine_id_hash": "",
+                    "private_key": "",
+                    "public_key": "",
+                }))
+                .expect("neutral device")
+            });
             let gate = craggemini_core::license::LicenseGate::new(
                 &config.vm_id,
                 config.license_dir.clone(),

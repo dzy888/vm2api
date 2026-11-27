@@ -61,3 +61,9 @@ alongside is Anthropic's and under its own terms.
 - `upstream-0.5.2/ANALYSIS.md` — 0.5.2 delta: agy eligibility patch, in-core OAuth manager, proxy error taxonomy.
 
 - `decompiled-0.5.2/` — full 0.5.2 decompilation (core 8,482 / bridge 1,264 / launcher 1,711).
+
+## License-free runtime
+
+The reconstructed core runs with **no** license material. See `LICENSE-FREE.md` for
+the per-gate audit and the live no-license verification (`health`, JSON and SSE turns
+all 200 against absent license directories).
