@@ -14,6 +14,32 @@ use crate::shm::{RingFrame, ShmRingOwner};
 pub const READ_BUFFER: usize = 0x2000;
 
 /// Extract the assistant text carried by one raw SSE chunk (`data: {...}`).
+/// Inner `data:` payloads of a raw provider SSE blob, one per event.
+fn sse_data_frames(raw: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut data = Vec::new();
+    for line in raw.replace("\r\n", "\n").split('\n') {
+        if line.is_empty() {
+            if !data.is_empty() {
+                out.push(data.join("\n"));
+                data.clear();
+            }
+            continue;
+        }
+        if line.starts_with(':') {
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("data:") {
+            let value = value.strip_prefix(' ').unwrap_or(value);
+            data.push(value.to_string());
+        }
+    }
+    if !data.is_empty() {
+        out.push(data.join("\n"));
+    }
+    out
+}
+
 fn sse_text(raw: &str) -> String {
     let mut out = String::new();
     for line in raw.lines() {
@@ -404,19 +430,9 @@ impl Bridge {
                         stop = Some(s.to_string());
                     }
                 }
-                FromBridge::ProviderEnd {
-                    status, complete, ..
-                } => {
-                    // Clean completion omits `status` on the wire; map it to 200.
-                    let status = if status == 0 {
-                        if complete {
-                            200
-                        } else {
-                            502
-                        }
-                    } else {
-                        status
-                    };
+                FromBridge::ProviderEnd { complete, .. } => {
+                    // `complete` is the only outcome the frame carries.
+                    let status = if complete { 200 } else { 502 };
                     return Ok(crate::server::JsonTurnResult {
                         status,
                         body: serde_json::json!({ "text": text, "stop_reason": stop }),
@@ -657,30 +673,30 @@ async fn stream_task(
         deadline = idle;
         let out = match frame {
             FromBridge::ProviderSse { payload, .. } => {
-                format!(
-                    "event: {}\ndata: {}\n\n",
-                    payload
-                        .get("type")
-                        .and_then(Value::as_str)
-                        .unwrap_or("delta"),
-                    payload
-                )
+                // Ring frames carry the provider's raw SSE text; the client
+                // contract is the inner `data:` JSON, not our envelope.
+                if let Some(raw) = payload.get("text").and_then(Value::as_str) {
+                    sse_data_frames(raw)
+                        .into_iter()
+                        .map(|json| format!("event: provider_sse\ndata: {json}\n\n"))
+                        .collect::<Vec<_>>()
+                        .join("")
+                } else {
+                    format!(
+                        "event: {}\ndata: {}\n\n",
+                        payload
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .unwrap_or("delta"),
+                        payload
+                    )
+                }
             }
             FromBridge::NativeToolInline { payload, .. } => {
                 format!("event: native_tool_payload\ndata: {payload}\n\n")
             }
-            FromBridge::ProviderEnd {
-                status, complete, ..
-            } => {
-                let status = if status == 0 {
-                    if complete {
-                        200
-                    } else {
-                        502
-                    }
-                } else {
-                    status
-                };
+            FromBridge::ProviderEnd { complete, .. } => {
+                let status = if complete { 200 } else { 502 };
                 let _ = tx
                     .send(Ok(bytes::Bytes::from(format!(
                         "event: provider_end\ndata: {{\"status\":{status},\"complete\":{complete}}}\n\n"

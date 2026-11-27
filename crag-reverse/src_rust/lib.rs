@@ -105,6 +105,11 @@ pub struct Config {
     pub min_warm_slots: u32,
     #[serde(default)]
     pub netns: String,
+    /// Pool mode: per-account bindings the control plane projects into
+    /// `kernel.json`. The first enabled entry supplies home, work dir, args and
+    /// egress settings for spawned slots.
+    #[serde(default)]
+    pub accounts: Vec<ConfigAccount>,
     // ---- 0.5.0 ---------------------------------------------------------
     /// Extra allowed agy digests (rotation while a release rolls out).
     #[serde(default)]
@@ -125,6 +130,50 @@ pub struct Config {
     pub slot_memory_estimate_bytes: u64,
     #[serde(default = "default_slot_rss")]
     pub slot_rss_soft_limit_bytes: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ConfigAccount {
+    #[serde(default)]
+    pub account_id: String,
+    #[serde(default)]
+    pub env_id: String,
+    #[serde(default)]
+    pub agy_home: String,
+    #[serde(default)]
+    pub work_dir: String,
+    #[serde(default)]
+    pub run_dir: String,
+    #[serde(default)]
+    pub proxy_id: String,
+    #[serde(default)]
+    pub proxy_url: String,
+    #[serde(default)]
+    pub proxy_sha256: String,
+    #[serde(default)]
+    pub netns: String,
+    #[serde(default)]
+    pub netns_transparent_egress: bool,
+    #[serde(default)]
+    pub oauth_proxy_required: bool,
+    #[serde(default)]
+    pub allow_loopback_proxy: bool,
+    #[serde(default)]
+    pub max_concurrency: Option<u32>,
+    #[serde(default)]
+    pub min_warm_slots: Option<u32>,
+    #[serde(default)]
+    pub session_idle_ttl_secs: Option<u64>,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub agy_args: Vec<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_acp_startup() -> u64 {
@@ -219,6 +268,7 @@ impl Default for Config {
             prewarm: false,
             min_warm_slots: 1,
             netns: String::new(),
+            accounts: Vec::new(),
             allowed_agy_sha256s: Vec::new(),
             acp_include_default_customizations: false,
             acp_startup_timeout_ms: default_acp_startup(),

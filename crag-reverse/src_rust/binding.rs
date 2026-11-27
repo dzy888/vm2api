@@ -56,15 +56,15 @@ fn default_true() -> bool {
 }
 
 impl AccountBindingConfig {
-    /// Default account derived from `kernel.json` when the control plane has not
-    /// registered one yet.
+    /// Account binding from `kernel.json`: a control-plane account entry wins,
+    /// otherwise a synthetic account is derived from the top-level config.
     pub fn from_config(config: &crate::Config) -> Self {
         let account = if config.vm_id.is_empty() {
             "default".to_string()
         } else {
             config.vm_id.clone()
         };
-        Self {
+        let mut binding = Self {
             account_id: account.clone(),
             env_id: account.clone(),
             run_dir: std::path::Path::new(&config.run_dir).join("account"),
@@ -89,7 +89,54 @@ impl AccountBindingConfig {
             agy_bin: Some(config.agy_bin.clone()),
             bridge_so: config.bridge_so.clone(),
             license_dir: Some(config.license_dir.clone()),
+        };
+        let Some(entry) = config.accounts.iter().find(|a| a.enabled) else {
+            return binding;
+        };
+        if !entry.account_id.is_empty() {
+            binding.account_id = entry.account_id.clone();
         }
+        if !entry.env_id.is_empty() {
+            binding.env_id = entry.env_id.clone();
+        }
+        if !entry.agy_home.is_empty() {
+            binding.agy_home = PathBuf::from(&entry.agy_home);
+        }
+        if !entry.run_dir.is_empty() {
+            binding.run_dir = PathBuf::from(&entry.run_dir);
+        }
+        if !entry.proxy_id.is_empty() {
+            binding.proxy_id = entry.proxy_id.clone();
+        }
+        if !entry.proxy_url.is_empty() {
+            binding.proxy_url = entry.proxy_url.clone();
+        }
+        if !entry.proxy_sha256.is_empty() {
+            binding.proxy_sha256 = entry.proxy_sha256.clone();
+        }
+        if !entry.netns.is_empty() {
+            binding.netns = entry.netns.clone();
+        }
+        binding.netns_transparent_egress = entry.netns_transparent_egress;
+        binding.oauth_proxy_required = entry.oauth_proxy_required;
+        binding.allow_loopback_proxy = entry.allow_loopback_proxy;
+        if let Some(v) = entry.max_concurrency {
+            binding.max_concurrency = v;
+        }
+        if let Some(v) = entry.min_warm_slots {
+            binding.min_warm_slots = v;
+        }
+        if let Some(v) = entry.session_idle_ttl_secs {
+            binding.session_idle_ttl_secs = v;
+            binding.idle_ttl_secs = v;
+        }
+        if !entry.model.is_empty() {
+            binding.model = entry.model.clone();
+        }
+        if !entry.agy_args.is_empty() {
+            binding.agy_args = entry.agy_args.clone();
+        }
+        binding
     }
 }
 

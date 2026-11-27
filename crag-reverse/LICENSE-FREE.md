@@ -64,3 +64,27 @@ real `agy` + `libagy_bridge.so`. No license file existed at any point.
 - The JSON path parked on the native socket while responses arrive on the shm ring;
   `next_frame` now polls the ring first when shm is enabled.
 - `provider_sse` text lives under `response.candidates[].content.parts[].text`.
+
+## Production slot swap (vm2api gemini, 2026-11-28)
+
+The live gemini slot on `23.80.83.27` was switched from the official kernel to this
+build through the panel route `POST /api/panel/gemini/kernel-self/install`
+(backup: `share/gemini/current.prev-1795807239`).
+
+Required reverse-engineered contract fixes, each taken from the 0.5.2 decompilation:
+
+| Item | Evidence | Fix |
+|---|---|---|
+| Readiness probe | `_worker_ready` in `gemini_host_native.py` needs `pool.enabled/ready` or `native_pid` | `/internal/health` reports `pool:{enabled,ready}` in pool mode (`health_summary` 0x4c3e40) |
+| Account routing | routes `/internal/v1/accounts/<id>/messages`, `x-bound-account` | account-scoped handler pins `x-craggemini-account`; dispatcher parses the path |
+| Account binding | `Config`/`AccountBindingConfig` (0x26af10) plus `accounts[]` in kernel.json | `from_config` adopts the enabled account (home, run_dir, args, egress) |
+| `provider_end` | `struct variant FromBridge::ProviderEnd with 3 elements`; live frame | fields `request_id`, `attempt_id`, `complete` only |
+| Client SSE | host `parse_sse` consumes the inner `data:` JSON | stream forwards the provider's inner `data:` frames verbatim |
+| verbosity | `{"verbosity":"high"}` literal 0x197336; `stage_slot_agy_home` 0x4d0a40; `agy --help` has no flag | settings.json staged under `agy_home/.gemini/antigravity-cli/`, passed as `--settings=<path>` |
+
+Verified twice through the panel `test-chat` (real host, bwrap, real agy):
+
+```
+{"state":"completed","text":"self-kernel-ok","usage":{"input_tokens":3900,"output_tokens":33}}
+{"state":"completed","text":"second-ok","usage":{"input_tokens":3902,"output_tokens":27}}
+```

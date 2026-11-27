@@ -76,6 +76,9 @@ pub struct Runtime {
     pub registry: std::sync::Mutex<Registry>,
     pub internal_token: String,
     pub license: std::sync::Mutex<Option<LicenseStatus>>,
+    /// Pool mode: the host readiness probe expects `pool.enabled/ready` instead
+    /// of a `native_pid`, because workers are spawned per account on demand.
+    pub pool_mode: bool,
 }
 
 impl Runtime {
@@ -130,12 +133,16 @@ impl Runtime {
     /// `Runtime::health` / `external_health`.
     pub fn health(&self) -> Value {
         let license = self.license.lock().unwrap();
-        json!({
+        let mut value = json!({
             "ok": true,
             "runtime_variant": "craggemini",
             "ready": license.as_ref().map(|l| l.valid).unwrap_or(false),
             "license": license.as_ref().map(|l| l.status.clone()),
-        })
+        });
+        if self.pool_mode {
+            value["pool"] = json!({ "enabled": true, "ready": true });
+        }
+        value
     }
 
     /// `Runtime::cancel_or_expire` closure 0x2b2f00.
@@ -253,6 +260,7 @@ pub async fn run_with_license(
         registry: Default::default(),
         internal_token: config.internal_token.clone(),
         license: std::sync::Mutex::new(None),
+        pool_mode: config.max_accounts > 0 || !config.accounts.is_empty(),
     };
     runtime.check_license()?;
     serve_http(runtime, config).await;
@@ -284,7 +292,7 @@ pub async fn serve_http(runtime: Runtime, config: crate::Config) {
         .route("/internal/v1/images/{*path}", post(internal_image))
         .route("/internal/v1/conversations/resume", post(internal_resume))
         .route("/internal/v1/subagents/{*path}", post(internal_subagent))
-        .route("/internal/v1/accounts/{*path}", post(internal_account))
+        .route("/internal/v1/accounts/{*path}", post(internal_account_route))
         .route("/internal/mcp/tools", get(mcp_tools))
         .route("/internal/mcp/listed", post(mcp_listed))
         .route("/internal/mcp/call", post(mcp_call))
@@ -401,7 +409,19 @@ pub async fn handle(State(rt): State<Arc<Runtime>>, req: Request<Body>) -> Respo
             internal_subagent(State(rt), headers, body).await
         }
         (Method::POST, p) if p.starts_with("/internal/v1/accounts/") => {
-            internal_account(State(rt), headers, body).await
+            // `/accounts/{id}/{messages,cancel,...}` scope the turn to one account;
+            // a bare `/accounts/{id}` is an account upsert.
+            let rest = &p["/internal/v1/accounts/".len()..];
+            match rest.split_once('/') {
+                Some((id, "messages")) => {
+                    internal_account_messages(State(rt), headers, body, id.to_string()).await
+                }
+                Some((id, "cancel")) => {
+                    internal_account_cancel(State(rt), headers, body, id.to_string()).await
+                }
+                Some((id, _)) => internal_account(State(rt), headers, body, id.to_string()).await,
+                None => internal_account(State(rt), headers, body, rest.to_string()).await,
+            }
         }
         (Method::GET, "/internal/mcp/tools") => mcp_tools(State(rt), headers).await,
         (Method::POST, "/internal/mcp/listed") => mcp_listed(State(rt), headers, body).await,
@@ -806,12 +826,85 @@ async fn internal_subagent(
     subagent_action(State(rt), headers, body).await
 }
 
+async fn internal_account_route(
+    State(rt): State<Arc<Runtime>>,
+    Path(rest): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    match rest.split_once('/') {
+        Some((id, "messages")) => {
+            internal_account_messages(State(rt), headers, body, id.to_string()).await
+        }
+        Some((id, "cancel")) => internal_account_cancel(State(rt), headers, body, id.to_string()).await,
+        Some((id, _)) => internal_account(State(rt), headers, body, id.to_string()).await,
+        None => internal_account(State(rt), headers, body, rest).await,
+    }
+}
+
 async fn internal_account(
     State(rt): State<Arc<Runtime>>,
     headers: HeaderMap,
     body: Bytes,
+    account_id: String,
 ) -> Response {
+    let mut headers = headers;
+    if let Ok(value) = axum::http::HeaderValue::from_str(&account_id) {
+        headers.insert(
+            axum::http::header::HeaderName::from_static(ACCOUNT_HEADER),
+            value,
+        );
+    }
     account_upsert(State(rt), headers, body).await
+}
+
+/// `POST /internal/v1/accounts/{id}/messages`: same as `internal_messages`, but
+/// pins the envelope to the account so the pool leases a matching slot.
+async fn internal_account_messages(
+    State(rt): State<Arc<Runtime>>,
+    headers: HeaderMap,
+    body: Bytes,
+    account_id: String,
+) -> Response {
+    let value: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => return error_response(Failure::new(400, "invalid_envelope", &e.to_string())),
+    };
+    let request_id = value
+        .get("request_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let stream = value
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut scoped = headers;
+    if let Ok(v) = axum::http::HeaderValue::from_str(&account_id) {
+        scoped.insert(
+            axum::http::header::HeaderName::from_static(ACCOUNT_HEADER),
+            v,
+        );
+    }
+    let envelope = build_envelope(
+        &scoped,
+        value.get("body").cloned().unwrap_or(Value::Null),
+        stream,
+        request_id,
+    );
+    match dispatch_turn(rt, envelope).await {
+        Ok(d) => delivery_response(d),
+        Err(r) => r,
+    }
+}
+
+async fn internal_account_cancel(
+    State(rt): State<Arc<Runtime>>,
+    _headers: HeaderMap,
+    body: Bytes,
+    _account_id: String,
+) -> Response {
+    cancel(State(rt), HeaderMap::new(), body).await
 }
 
 // ---- MCP -------------------------------------------------------------------

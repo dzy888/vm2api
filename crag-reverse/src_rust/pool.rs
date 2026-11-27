@@ -73,8 +73,27 @@ impl AgySlot {
             .map_err(|e| Failure::new(500, "account_dir_error", &e))?;
 
         let mut args = Self::effective_agy_args(&config, &binding);
-        args.push("--settings".into());
-        args.push(work_dir.join("settings.json").display().to_string());
+        // A control-plane account ships the full arg list (including its inline
+        // `--settings` JSON); only synthesize settings for generated args.
+        // Staged settings live at `<agy_home>/.gemini/antigravity-cli/settings.json`
+        // (`stage_slot_agy_home` 0x4d0a40) and the flag uses the `--settings=` form.
+        if binding.agy_args.is_empty() {
+            let settings = agy_home
+                .join(".gemini")
+                .join("antigravity-cli")
+                .join("settings.json");
+            if let Some(dir) = settings.parent() {
+                let _ = crate::binding::ensure_private_dir(dir);
+            }
+            let _ = std::fs::write(
+                &settings,
+                concat!(
+                    r#"{"allowNonWorkspaceAccess":true,"useG1Credits":false,"verbosity":"high","#,
+                    r#""permissions":{"allow":[],"deny":["write_file(*)","command(*)"]}}"#
+                ),
+            );
+            args.push(format!("--settings={}", settings.display()));
+        }
 
         let native_path = work_dir.join("native.sock");
         let _ = std::fs::remove_file(&native_path);
@@ -153,15 +172,30 @@ impl AgySlot {
     }
 
     /// `pool::effective_agy_args`.
+    /// `pool::effective_agy_args_with_resume` 0x4d3060: start from the account
+    /// args, then guarantee the mandatory defaults. The decompiled body only
+    /// injects `--dangerously-skip-permissions` and `--verbosity high`; the rest
+    /// comes from the binding.
     pub fn effective_agy_args(
-        config: &crate::Config,
+        _config: &crate::Config,
         binding: &AccountBindingConfig,
     ) -> Vec<String> {
-        if !binding.agy_args.is_empty() {
-            return binding.agy_args.clone();
+        let mut args = Vec::new();
+        if !binding
+            .agy_args
+            .iter()
+            .any(|a| a.starts_with("--dangerously-skip-permissions"))
+        {
+            args.push("--dangerously-skip-permissions".into());
         }
-        // `agy` has no --pool-size flag; the PTY path uses the normal CLI args.
-        let mut args = vec!["--dangerously-skip-permissions".into()];
+        args.extend(binding.agy_args.iter().cloned());
+        // `agy` has no `--verbosity` flag; high verbosity lives in settings.json
+        // (`{"verbosity":"high"}`, literal at 0x197336). A control-plane arg list
+        // already carries its own `--settings`, so leave it untouched.
+        if !binding.agy_args.is_empty() {
+            return args;
+        }
+        // Synthesized arg set (no control-plane entry): normal CLI args.
         let work = binding.run_dir.display().to_string();
         if !work.is_empty() {
             args.push("--add-dir".into());

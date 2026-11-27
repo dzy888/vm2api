@@ -275,17 +275,13 @@ pub enum FromBridge {
         shell: String,
     },
     ProviderEnd {
-        // Captured success frame carries neither `status` nor `retry_after`:
-        // {"attempt_id":"main","complete":true,"request_id":"..","type":"provider_end"}
+        // 3 fields, per `struct variant FromBridge::ProviderEnd with 3 elements`
+        // and the captured frame {attempt_id, complete, request_id}.
         #[serde(default)]
         request_id: String,
         #[serde(default)]
-        status: u16,
-        #[serde(default)]
         attempt_id: Option<String>,
-        #[serde(default)]
         complete: bool,
-        retry_after: Option<String>,
     },
     ProviderSse {
         request_id: String,
