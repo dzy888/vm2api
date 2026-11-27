@@ -1,0 +1,13 @@
+// 0079e500 freeaddrinfo
+
+/* WARNING: Control flow encountered bad instruction data */
+/* WARNING: Unknown calling convention -- yet parameter storage is locked */
+
+void freeaddrinfo(addrinfo *__ai)
+
+{
+                    /* WARNING: Bad instruction - Truncating control flow here */
+  halt_baddata();
+}
+
+

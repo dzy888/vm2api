@@ -1,0 +1,300 @@
+openjdk version "25.0.5.1" 2026-11-17 LTS
+OpenJDK Runtime Environment Temurin-25.0.5.1+2 (build 25.0.5.1+2-LTS)
+OpenJDK 64-Bit Server VM Temurin-25.0.5.1+2 (build 25.0.5.1+2-LTS, mixed mode)
+INFO  Using log config file: jar:file:/opt/ghidra_12.2_PUBLIC/Ghidra/Framework/Generic/lib/Generic.jar!/generic.log4j.xml (LoggingInitialization)  
+INFO  Using log file: /root/.config/ghidra/ghidra_12.2_PUBLIC/application.log (LoggingInitialization)  
+INFO  Loading user preferences: /root/.config/ghidra/ghidra_12.2_PUBLIC/preferences (Preferences)  
+INFO  Searching for classes... (ClassSearcher)  
+INFO  Class search complete (1678 ms) (ClassSearcher)  
+INFO  Initializing SSL Context (DefaultSSLContextInitializer)  
+INFO  Initializing Random Number Generator... (SecureRandomFactory)  
+INFO  Random Number Generator initialization complete: NativePRNGNonBlocking (SecureRandomFactory)  
+INFO  Loaded 120 trusted CA certificate(s) from /etc/ssl/certs/ca-certificates.crt (UnixSystemTrustKeyStoreUtil)  
+INFO  Loaded 120 trusted CA certificates from the OS trust store. (DefaultTrustManagerFactory)  
+INFO  Loaded 117 trusted CA certificates from the Java default trust store. (DefaultTrustManagerFactory)  
+INFO  Headless startup complete (7716 ms) (AnalyzeHeadless)  
+INFO  Class searcher loaded 60 extension points (19 false positives) (ClassSearcher)  
+INFO  HEADLESS Script Paths:
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/BSim/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/FileFormats/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/PyGhidra/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Debug/Debugger-rmi-trace/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/FunctionID/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/SystemEmulation/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Processors/8051/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Processors/JVM/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/Swift/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/PDB/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Processors/DATA/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Debug/Debugger/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/BytePatterns/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/VersionTracking/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/GnuDemangler/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/DecompilerDependent/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/Base/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/Decompiler/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Processors/PIC/ghidra_scripts
+    /tmp/gs
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Processors/Atmel/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/MicrosoftCodeAnalyzer/ghidra_scripts
+    /opt/ghidra_12.2_PUBLIC/Ghidra/Features/WildcardAssembler/ghidra_scripts (HeadlessAnalyzer)  
+INFO  HEADLESS: execution starts (HeadlessAnalyzer)  
+INFO  Creating temporary project: /tmp/gp052so/p (HeadlessAnalyzer)  
+INFO  Creating project: /tmp/gp052so/p (DefaultProject)  
+INFO  REPORT: Processing input files:  (HeadlessAnalyzer)  
+INFO       project: /tmp/gp052so/p (HeadlessAnalyzer)  
+INFO  IMPORTING: file:///tmp/g052/libagy_bridge.so (HeadlessAnalyzer)  
+INFO  Successfully applied "-loader-imagebase" to "Image Base" (old: "100000", new: "0x0") (ProgramLoader)  
+INFO  Using Loader: Executable and Linking Format (ELF) (ProgramLoader)  
+INFO  Using Language/Compiler: x86:LE:64:default:windows (ProgramLoader)  
+INFO  Using Library Search Path: [., /bin, /lib, /lib64, /lib/x86_64-linux-gnu, /lib/aarch64-linux-gnu, /usr/bin, /usr/lib, /usr/X11R6/bin, /usr/X11R6/lib, /usr/java/packages/lib, /usr/lib64] (ProgramLoader)  
+INFO  Additional info:
+Loading file:///tmp/g052/libagy_bridge.so?MD5=909a9014772a33f2955207f4ab982786...
+Skipping section [.tm_clone_table] with invalid size 0x0
+Unsupported Thread-Local Symbol not loaded: _RNvNCNKNvNtNtCs9k3SxhrAWiO_3std9panicking11panic_count17LOCAL_PANIC_COUNT0s_023___RUST_STD_INTERNAL_VAL
+Unsupported Thread-Local Symbol not loaded: _RNvNCNKNvNtNtCs9k3SxhrAWiO_3std2io5stdio14OUTPUT_CAPTURE0023___RUST_STD_INTERNAL_VAL
+Unsupported Thread-Local Symbol not loaded: _RNvNtNtNtNtCs9k3SxhrAWiO_3std3sys12thread_local11destructors4list5DTORS
+Unsupported Thread-Local Symbol not loaded: _RNvNCNKNvNvMNtNtCs9k3SxhrAWiO_3std4hash6randomNtBa_11RandomState3new4KEYS0s_023___RUST_STD_INTERNAL_VAL
+Unsupported Thread-Local Symbol not loaded: _RNvNtNtNtCs9k3SxhrAWiO_3std6thread7current2id2ID
+Unsupported Thread-Local Symbol not loaded: _RNvNtNtCs9k3SxhrAWiO_3std6thread7current7CURRENT
+Unsupported Thread-Local Symbol not loaded: _RNvNCNKNvNtNtCs9k3SxhrAWiO_3std6thread9spawnhook11SPAWN_HOOKS0023___RUST_STD_INTERNAL_VAL
+ELF Relocation Failure: R_X86_64_DTPMOD64 (16, 0x10) at 000c3a18 (Symbol = <no name>) - Thread Local Symbol relocation not supported
+ELF Relocation Failure: R_X86_64_DTPMOD64 (16, 0x10) at 000c3c88 (Symbol = <no name>) - Thread Local Symbol relocation not supported
+ELF Relocation Failure: R_X86_64_DTPMOD64 (16, 0x10) at 000c41c8 (Symbol = <no name>) - Thread Local Symbol relocation not supported
+ELF Relocation Failure: R_X86_64_DTPMOD64 (16, 0x10) at 000c4230 (Symbol = <no name>) - Thread Local Symbol relocation not supported
+ELF Relocation Failure: R_X86_64_DTPMOD64 (16, 0x10) at 000c4388 (Symbol = <no name>) - Thread Local Symbol relocation not supported
+Setting block .tdata to read-only
+Setting block .fini_array to read-only
+Setting block .init_array to read-only
+Setting block .data.rel.ro to read-only
+Setting block .dynamic to read-only
+------------------------------------------------
+
+Linking the External Programs of 'libagy_bridge.so' to imported libraries...
+  [libgcc_s.so.1] -> not found in project
+  [libc.so.6] -> not found in project
+  [ld-linux-x86-64.so.2] -> not found in project
+------------------------------------------------
+
+Resolving External Symbols of [/libagy_bridge.so] - 86 unresolved symbols, no external libraries configured - skipping
+ (ProgramLoader)  
+INFO  IMPORTING: Loaded 0 additional files (HeadlessAnalyzer)  
+INFO  REPORT: Execute script: MakeFunctions.java  (HeadlessAnalyzer)  
+INFO  SCRIPT: /tmp/gs/MakeFunctions.java (HeadlessAnalyzer)  
+INFO  MakeFunctions.java> created 0 functions (GhidraScript)  
+INFO  ANALYZING all memory and code: file:///tmp/g052/libagy_bridge.so (HeadlessAnalyzer)  
+INFO  DWARF external debug information found: [BuildIdDebugInfo [buildId=[52, 2, 37, -54, 46, -37, -16, -54, 10, -76, 112, -68, 102, -59, -86, 97, 69, 27, -61, 68], objectType=DEBUGINFO, ]] (ExternalDebugFileSectionProvider)  
+INFO  Unable to find DWARF information, skipping DWARF analysis (DWARFAnalyzer)  
+INFO  hit non-returning function, restarting decompiler switch analyzer later (DecompilerSwitchAnalyzer)  
+WARN  Decompiling 00050690, pcode error at 00056ccd: Unable to resolve constructor at 00056ccd (DecompileCallback)  
+WARN  Decompiling 00050690, pcode error at 00056aa0: Unable to resolve constructor at 00056aa0 (DecompileCallback)  
+WARN  Decompiling 00054070: Unable to read bytes at ram:6f6d3925 (DecompileCallback)  
+WARN  Decompiling 00054070, pcode error at 00057f84: Unable to resolve constructor at 00057f84 (DecompileCallback)  
+WARN  Decompiling 000a4c70: Unable to read bytes at ram:6e66bf0a (DecompileCallback)  
+WARN  Decompiling 000a4c70, pcode error at 000a8b94: Unable to resolve constructor at 000a8b94 (DecompileCallback)  
+WARN  Decompiling 000b4430, pcode error at 4cf7f9e8: Could not follow disassembly flow into non-existing memory at 4cf7f9e8 (DecompileCallback)  
+WARN  Decompiling 00056f30: Unable to read bytes at ram:6f6d3b39 (DecompileCallback)  
+WARN  Decompiling 00056f30, pcode error at 000580ee: Unable to resolve constructor at 000580ee (DecompileCallback)  
+WARN  Decompiling 00030c60, pcode error at 000c7010: Unable to disassemble EXTERNAL block location: 000c7010 (DecompileCallback)  
+WARN  Decompiling 00058290, pcode error at 000c7150: Unable to disassemble EXTERNAL block location: 000c7150 (DecompileCallback)  
+WARN  Decompiling 00031e30, pcode error at 000c7150: Unable to disassemble EXTERNAL block location: 000c7150 (DecompileCallback)  
+WARN  Decompiling 000b0c5b, pcode error at 000c7020: Unable to disassemble EXTERNAL block location: 000c7020 (DecompileCallback)  
+WARN  Decompiling 000325f0, pcode error at 000c7150: Unable to disassemble EXTERNAL block location: 000c7150 (DecompileCallback)  
+WARN  Decompiling 0004d600, pcode error at 000c7150: Unable to disassemble EXTERNAL block location: 000c7150 (DecompileCallback)  
+WARN  Decompiling 000626d0, pcode error at 000c7150: Unable to disassemble EXTERNAL block location: 000c7150 (DecompileCallback)  
+WARN  Decompiling 000779a0: Unable to read bytes at ram:6575b9ba (DecompileCallback)  
+WARN  Decompiling 00032c40, pcode error at 0004c953: Unable to resolve constructor at 0004c953 (DecompileCallback)  
+WARN  Decompiling 000580c0: Unable to read bytes at ram:6f6d3b59 (DecompileCallback)  
+WARN  Decompiling 0004d7a0, pcode error at 000c7150: Unable to disassemble EXTERNAL block location: 000c7150 (DecompileCallback)  
+WARN  Decompiling 00074190: Unable to read bytes at ram:6c7064d2 (DecompileCallback)  
+WARN  Decompiling 000598f0: Unable to read bytes at ram:65754051 (DecompileCallback)  
+WARN  Decompiling 000598f0, pcode error at 0005c6a1: Unable to resolve constructor at 0005c6a1 (DecompileCallback)  
+WARN  Decompiling 000598f0, pcode error at 0005c010: Unable to resolve constructor at 0005c010 (DecompileCallback)  
+WARN  Decompiling 000327e0, pcode error at 0004a62c: Unable to resolve constructor at 0004a62c (DecompileCallback)  
+WARN  Decompiling 000327e0, pcode error at 00049dc8: Unable to resolve constructor at 00049dc8 (DecompileCallback)  
+WARN  Decompiling 000585b0, pcode error at 000c7150: Unable to disassemble EXTERNAL block location: 000c7150 (DecompileCallback)  
+WARN  Decompiling 00054ac0: Unable to read bytes at ram:6f6d39b9 (DecompileCallback)  
+WARN  Decompiling 00054ac0, pcode error at 00058014: Unable to resolve constructor at 00058014 (DecompileCallback)  
+WARN  Decompiling 00054ac0, pcode error at 00057f34: Unable to resolve constructor at 00057f34 (DecompileCallback)  
+WARN  Decompiling 00030c30, pcode error at 000c7008: Unable to disassemble EXTERNAL block location: 000c7008 (DecompileCallback)  
+WARN  Decompiling 00064330, pcode error at 000c7150: Unable to disassemble EXTERNAL block location: 000c7150 (DecompileCallback)  
+WARN  Decompiling 000660f0, pcode error at 000c7020: Unable to disassemble EXTERNAL block location: 000c7020 (DecompileCallback)  
+WARN  Decompiling 0007bb14, pcode error at 00083fd8: Unable to resolve constructor at 00083fd8 (DecompileCallback)  
+WARN  Decompiling 0007bb14, pcode error at 00084b0b: Unable to resolve constructor at 00084b0b (DecompileCallback)  
+WARN  Decompiling 00068ef0: Unable to read bytes at ram:6575546d (DecompileCallback)  
+WARN  Decompiling 00052b60: Unable to read bytes at ram:6f6d3861 (DecompileCallback)  
+WARN  Decompiling 0005a4e0: Unable to read bytes at ram:65754071 (DecompileCallback)  
+WARN  Decompiling 0005a4e0, pcode error at 0005c165: Unable to resolve constructor at 0005c165 (DecompileCallback)  
+WARN  Decompiling 0004f180, pcode error at 00054b2d: Unable to resolve constructor at 00054b2d (DecompileCallback)  
+INFO  Packed database cache: /var/tmp/root-ghidra/packed-db-cache (PackedDatabaseCache)  
+INFO  Applied data type archive: generic_clib_64 (ApplyDataArchiveAnalyzer)  
+INFO  Applied data type archive: rust-common (ApplyDataArchiveAnalyzer)  
+INFO  Applied data type archive: generic_clib_64 (ApplyDataArchiveAnalyzer)  
+INFO  Applied data type archive: rust-common (ApplyDataArchiveAnalyzer)  
+INFO  No functions detected that make variadic function calls with format strings containing format specifiers (FormatStringAnalyzer)  
+INFO  -----------------------------------------------------
+    ASCII Strings                              1.686 secs
+    Apply Data Archives                        1.680 secs
+    Call Convention ID                         0.489 secs
+    Call-Fixup Installer                       0.217 secs
+    Create Address Tables                      0.605 secs
+    Create Address Tables - One Time           0.197 secs
+    Create Function                            0.016 secs
+    DWARF                                      0.027 secs
+    Data Reference                             0.979 secs
+    Decompiler Switch Analysis                 5.055 secs
+    Decompiler Switch Analysis - One Time     54.750 secs
+    Demangler GNU                              2.915 secs
+    Demangler Rust                             2.909 secs
+    Disassemble Entry Points                   9.175 secs
+    Disassemble Entry Points - One Time        0.004 secs
+    Embedded Media                             0.102 secs
+    External Entry References                  0.004 secs
+    Function ID                                4.490 secs
+    Function Start Search                      0.081 secs
+    Non-Returning Functions - Discovered       0.825 secs
+    Non-Returning Functions - Known            0.033 secs
+    Reference                                  1.764 secs
+    Rust String Analyzer                       0.326 secs
+    Shared Return Calls                        0.451 secs
+    Source Language Support                    0.192 secs
+    Stack                                     13.720 secs
+    Subroutine References                      0.207 secs
+    Subroutine References - One Time           0.000 secs
+    Variadic Function Signature Override       0.555 secs
+    x86 Constant Reference Analyzer           10.759 secs
+-----------------------------------------------------
+     Total Time   114 secs
+-----------------------------------------------------
+ (AutoAnalysisManager)  
+INFO  REPORT: Analysis succeeded for file: file:///tmp/g052/libagy_bridge.so (HeadlessAnalyzer)  
+INFO  REPORT: Execute script: DumpAll.java  (HeadlessAnalyzer)  
+INFO  SCRIPT: /tmp/gs/DumpAll.java (HeadlessAnalyzer)  
+WARN  Decompiling 000327e0, pcode error at 0004a62c: Unable to resolve constructor at 0004a62c (DecompileCallback)  
+WARN  Decompiling 000327e0, pcode error at 00049dc8: Unable to resolve constructor at 00049dc8 (DecompileCallback)  
+WARN  Decompiling 00032c40, pcode error at 0004c953: Unable to resolve constructor at 0004c953 (DecompileCallback)  
+WARN  Decompiling 0004f180, pcode error at 00054b2d: Unable to resolve constructor at 00054b2d (DecompileCallback)  
+WARN  Decompiling 00050690, pcode error at 00056ccd: Unable to resolve constructor at 00056ccd (DecompileCallback)  
+WARN  Decompiling 00050690, pcode error at 00056aa0: Unable to resolve constructor at 00056aa0 (DecompileCallback)  
+WARN  Decompiling 00052b60: Unable to read bytes at ram:6f6d3861 (DecompileCallback)  
+WARN  Decompiling 00054070: Unable to read bytes at ram:6f6d3925 (DecompileCallback)  
+WARN  Decompiling 00054070, pcode error at 00057f84: Unable to resolve constructor at 00057f84 (DecompileCallback)  
+WARN  Decompiling 00054ac0: Unable to read bytes at ram:6f6d39b9 (DecompileCallback)  
+WARN  Decompiling 00054ac0, pcode error at 00058014: Unable to resolve constructor at 00058014 (DecompileCallback)  
+WARN  Decompiling 00054ac0, pcode error at 00057f34: Unable to resolve constructor at 00057f34 (DecompileCallback)  
+WARN  Decompiling 00056f30: Unable to read bytes at ram:6f6d3b39 (DecompileCallback)  
+WARN  Decompiling 00056f30, pcode error at 000580ee: Unable to resolve constructor at 000580ee (DecompileCallback)  
+WARN  Decompiling 000580c0: Unable to read bytes at ram:6f6d3b59 (DecompileCallback)  
+WARN  Decompiling 000598f0: Unable to read bytes at ram:65754051 (DecompileCallback)  
+WARN  Decompiling 000598f0, pcode error at 0005c6a1: Unable to resolve constructor at 0005c6a1 (DecompileCallback)  
+WARN  Decompiling 000598f0, pcode error at 0005c010: Unable to resolve constructor at 0005c010 (DecompileCallback)  
+WARN  Decompiling 0005a4e0: Unable to read bytes at ram:65754071 (DecompileCallback)  
+WARN  Decompiling 0005a4e0, pcode error at 0005c165: Unable to resolve constructor at 0005c165 (DecompileCallback)  
+INFO  DumpAll.java> dumped 200 (GhidraScript)  
+WARN  Decompiling 00068ef0: Unable to read bytes at ram:6575546d (DecompileCallback)  
+INFO  DumpAll.java> dumped 400 (GhidraScript)  
+WARN  Decompiling 00074190: Unable to read bytes at ram:6c7064d2 (DecompileCallback)  
+WARN  Decompiling 000779a0: Unable to read bytes at ram:6575b9ba (DecompileCallback)  
+WARN  Decompiling 0007bb14, pcode error at 00083fd8: Unable to resolve constructor at 00083fd8 (DecompileCallback)  
+WARN  Decompiling 0007bb14, pcode error at 00084b0b: Unable to resolve constructor at 00084b0b (DecompileCallback)  
+INFO  DumpAll.java> dumped 600 (GhidraScript)  
+INFO  DumpAll.java> dumped 800 (GhidraScript)  
+WARN  Decompiling 000a4c70: Unable to read bytes at ram:6e66bf0a (DecompileCallback)  
+WARN  Decompiling 000a4c70, pcode error at 000a8b94: Unable to resolve constructor at 000a8b94 (DecompileCallback)  
+INFO  DumpAll.java> dumped 1000 (GhidraScript)  
+WARN  Decompiling 000c7000, pcode error at 000c7000: Unable to disassemble EXTERNAL block location: 000c7000 (DecompileCallback)  
+WARN  Decompiling 000c7008, pcode error at 000c7008: Unable to disassemble EXTERNAL block location: 000c7008 (DecompileCallback)  
+WARN  Decompiling 000c7010, pcode error at 000c7010: Unable to disassemble EXTERNAL block location: 000c7010 (DecompileCallback)  
+WARN  Decompiling 000c7018, pcode error at 000c7018: Unable to disassemble EXTERNAL block location: 000c7018 (DecompileCallback)  
+WARN  Decompiling 000c7020, pcode error at 000c7020: Unable to disassemble EXTERNAL block location: 000c7020 (DecompileCallback)  
+WARN  Decompiling 000c7028, pcode error at 000c7028: Unable to disassemble EXTERNAL block location: 000c7028 (DecompileCallback)  
+WARN  Decompiling 000c7030, pcode error at 000c7030: Unable to disassemble EXTERNAL block location: 000c7030 (DecompileCallback)  
+WARN  Decompiling 000c7038, pcode error at 000c7038: Unable to disassemble EXTERNAL block location: 000c7038 (DecompileCallback)  
+WARN  Decompiling 000c7040, pcode error at 000c7040: Unable to disassemble EXTERNAL block location: 000c7040 (DecompileCallback)  
+WARN  Decompiling 000c7048, pcode error at 000c7048: Unable to disassemble EXTERNAL block location: 000c7048 (DecompileCallback)  
+WARN  Decompiling 000c7050, pcode error at 000c7050: Unable to disassemble EXTERNAL block location: 000c7050 (DecompileCallback)  
+WARN  Decompiling 000c7058, pcode error at 000c7058: Unable to disassemble EXTERNAL block location: 000c7058 (DecompileCallback)  
+WARN  Decompiling 000c7060, pcode error at 000c7060: Unable to disassemble EXTERNAL block location: 000c7060 (DecompileCallback)  
+WARN  Decompiling 000c7068, pcode error at 000c7068: Unable to disassemble EXTERNAL block location: 000c7068 (DecompileCallback)  
+WARN  Decompiling 000c7070, pcode error at 000c7070: Unable to disassemble EXTERNAL block location: 000c7070 (DecompileCallback)  
+WARN  Decompiling 000c7078, pcode error at 000c7078: Unable to disassemble EXTERNAL block location: 000c7078 (DecompileCallback)  
+WARN  Decompiling 000c7080, pcode error at 000c7080: Unable to disassemble EXTERNAL block location: 000c7080 (DecompileCallback)  
+WARN  Decompiling 000c7088, pcode error at 000c7088: Unable to disassemble EXTERNAL block location: 000c7088 (DecompileCallback)  
+WARN  Decompiling 000c7090, pcode error at 000c7090: Unable to disassemble EXTERNAL block location: 000c7090 (DecompileCallback)  
+WARN  Decompiling 000c7098, pcode error at 000c7098: Unable to disassemble EXTERNAL block location: 000c7098 (DecompileCallback)  
+WARN  Decompiling 000c70a0, pcode error at 000c70a0: Unable to disassemble EXTERNAL block location: 000c70a0 (DecompileCallback)  
+WARN  Decompiling 000c70a8, pcode error at 000c70a8: Unable to disassemble EXTERNAL block location: 000c70a8 (DecompileCallback)  
+WARN  Decompiling 000c70b0, pcode error at 000c70b0: Unable to disassemble EXTERNAL block location: 000c70b0 (DecompileCallback)  
+WARN  Decompiling 000c70b8, pcode error at 000c70b8: Unable to disassemble EXTERNAL block location: 000c70b8 (DecompileCallback)  
+WARN  Decompiling 000c70c0, pcode error at 000c70c0: Unable to disassemble EXTERNAL block location: 000c70c0 (DecompileCallback)  
+INFO  DumpAll.java> dumped 1200 (GhidraScript)  
+WARN  Decompiling 000c70c8, pcode error at 000c70c8: Unable to disassemble EXTERNAL block location: 000c70c8 (DecompileCallback)  
+WARN  Decompiling 000c70d0, pcode error at 000c70d0: Unable to disassemble EXTERNAL block location: 000c70d0 (DecompileCallback)  
+WARN  Decompiling 000c70d8, pcode error at 000c70d8: Unable to disassemble EXTERNAL block location: 000c70d8 (DecompileCallback)  
+WARN  Decompiling 000c70e0, pcode error at 000c70e0: Unable to disassemble EXTERNAL block location: 000c70e0 (DecompileCallback)  
+WARN  Decompiling 000c70e8, pcode error at 000c70e8: Unable to disassemble EXTERNAL block location: 000c70e8 (DecompileCallback)  
+WARN  Decompiling 000c70f0, pcode error at 000c70f0: Unable to disassemble EXTERNAL block location: 000c70f0 (DecompileCallback)  
+WARN  Decompiling 000c70f8, pcode error at 000c70f8: Unable to disassemble EXTERNAL block location: 000c70f8 (DecompileCallback)  
+WARN  Decompiling 000c7100, pcode error at 000c7100: Unable to disassemble EXTERNAL block location: 000c7100 (DecompileCallback)  
+WARN  Decompiling 000c7108, pcode error at 000c7108: Unable to disassemble EXTERNAL block location: 000c7108 (DecompileCallback)  
+WARN  Decompiling 000c7110, pcode error at 000c7110: Unable to disassemble EXTERNAL block location: 000c7110 (DecompileCallback)  
+WARN  Decompiling 000c7118, pcode error at 000c7118: Unable to disassemble EXTERNAL block location: 000c7118 (DecompileCallback)  
+WARN  Decompiling 000c7120, pcode error at 000c7120: Unable to disassemble EXTERNAL block location: 000c7120 (DecompileCallback)  
+WARN  Decompiling 000c7128, pcode error at 000c7128: Unable to disassemble EXTERNAL block location: 000c7128 (DecompileCallback)  
+WARN  Decompiling 000c7130, pcode error at 000c7130: Unable to disassemble EXTERNAL block location: 000c7130 (DecompileCallback)  
+WARN  Decompiling 000c7138, pcode error at 000c7138: Unable to disassemble EXTERNAL block location: 000c7138 (DecompileCallback)  
+WARN  Decompiling 000c7140, pcode error at 000c7140: Unable to disassemble EXTERNAL block location: 000c7140 (DecompileCallback)  
+WARN  Decompiling 000c7148, pcode error at 000c7148: Unable to disassemble EXTERNAL block location: 000c7148 (DecompileCallback)  
+WARN  Decompiling 000c7150, pcode error at 000c7150: Unable to disassemble EXTERNAL block location: 000c7150 (DecompileCallback)  
+WARN  Decompiling 000c7158, pcode error at 000c7158: Unable to disassemble EXTERNAL block location: 000c7158 (DecompileCallback)  
+WARN  Decompiling 000c7160, pcode error at 000c7160: Unable to disassemble EXTERNAL block location: 000c7160 (DecompileCallback)  
+WARN  Decompiling 000c7168, pcode error at 000c7168: Unable to disassemble EXTERNAL block location: 000c7168 (DecompileCallback)  
+WARN  Decompiling 000c7170, pcode error at 000c7170: Unable to disassemble EXTERNAL block location: 000c7170 (DecompileCallback)  
+WARN  Decompiling 000c7178, pcode error at 000c7178: Unable to disassemble EXTERNAL block location: 000c7178 (DecompileCallback)  
+WARN  Decompiling 000c7180, pcode error at 000c7180: Unable to disassemble EXTERNAL block location: 000c7180 (DecompileCallback)  
+WARN  Decompiling 000c7188, pcode error at 000c7188: Unable to disassemble EXTERNAL block location: 000c7188 (DecompileCallback)  
+WARN  Decompiling 000c7190, pcode error at 000c7190: Unable to disassemble EXTERNAL block location: 000c7190 (DecompileCallback)  
+WARN  Decompiling 000c7198, pcode error at 000c7198: Unable to disassemble EXTERNAL block location: 000c7198 (DecompileCallback)  
+WARN  Decompiling 000c71a0, pcode error at 000c71a0: Unable to disassemble EXTERNAL block location: 000c71a0 (DecompileCallback)  
+WARN  Decompiling 000c71a8, pcode error at 000c71a8: Unable to disassemble EXTERNAL block location: 000c71a8 (DecompileCallback)  
+WARN  Decompiling 000c71b0, pcode error at 000c71b0: Unable to disassemble EXTERNAL block location: 000c71b0 (DecompileCallback)  
+WARN  Decompiling 000c71b8, pcode error at 000c71b8: Unable to disassemble EXTERNAL block location: 000c71b8 (DecompileCallback)  
+WARN  Decompiling 000c71c0, pcode error at 000c71c0: Unable to disassemble EXTERNAL block location: 000c71c0 (DecompileCallback)  
+WARN  Decompiling 000c71c8, pcode error at 000c71c8: Unable to disassemble EXTERNAL block location: 000c71c8 (DecompileCallback)  
+WARN  Decompiling 000c71d0, pcode error at 000c71d0: Unable to disassemble EXTERNAL block location: 000c71d0 (DecompileCallback)  
+WARN  Decompiling 000c71d8, pcode error at 000c71d8: Unable to disassemble EXTERNAL block location: 000c71d8 (DecompileCallback)  
+WARN  Decompiling 000c71e0, pcode error at 000c71e0: Unable to disassemble EXTERNAL block location: 000c71e0 (DecompileCallback)  
+WARN  Decompiling 000c71e8, pcode error at 000c71e8: Unable to disassemble EXTERNAL block location: 000c71e8 (DecompileCallback)  
+WARN  Decompiling 000c71f0, pcode error at 000c71f0: Unable to disassemble EXTERNAL block location: 000c71f0 (DecompileCallback)  
+WARN  Decompiling 000c71f8, pcode error at 000c71f8: Unable to disassemble EXTERNAL block location: 000c71f8 (DecompileCallback)  
+WARN  Decompiling 000c7200, pcode error at 000c7200: Unable to disassemble EXTERNAL block location: 000c7200 (DecompileCallback)  
+WARN  Decompiling 000c7208, pcode error at 000c7208: Unable to disassemble EXTERNAL block location: 000c7208 (DecompileCallback)  
+WARN  Decompiling 000c7210, pcode error at 000c7210: Unable to disassemble EXTERNAL block location: 000c7210 (DecompileCallback)  
+WARN  Decompiling 000c7218, pcode error at 000c7218: Unable to disassemble EXTERNAL block location: 000c7218 (DecompileCallback)  
+WARN  Decompiling 000c7220, pcode error at 000c7220: Unable to disassemble EXTERNAL block location: 000c7220 (DecompileCallback)  
+WARN  Decompiling 000c7228, pcode error at 000c7228: Unable to disassemble EXTERNAL block location: 000c7228 (DecompileCallback)  
+WARN  Decompiling 000c7230, pcode error at 000c7230: Unable to disassemble EXTERNAL block location: 000c7230 (DecompileCallback)  
+WARN  Decompiling 000c7238, pcode error at 000c7238: Unable to disassemble EXTERNAL block location: 000c7238 (DecompileCallback)  
+WARN  Decompiling 000c7240, pcode error at 000c7240: Unable to disassemble EXTERNAL block location: 000c7240 (DecompileCallback)  
+WARN  Decompiling 000c7248, pcode error at 000c7248: Unable to disassemble EXTERNAL block location: 000c7248 (DecompileCallback)  
+WARN  Decompiling 000c7250, pcode error at 000c7250: Unable to disassemble EXTERNAL block location: 000c7250 (DecompileCallback)  
+WARN  Decompiling 000c7258, pcode error at 000c7258: Unable to disassemble EXTERNAL block location: 000c7258 (DecompileCallback)  
+WARN  Decompiling 000c7260, pcode error at 000c7260: Unable to disassemble EXTERNAL block location: 000c7260 (DecompileCallback)  
+WARN  Decompiling 000c7268, pcode error at 000c7268: Unable to disassemble EXTERNAL block location: 000c7268 (DecompileCallback)  
+WARN  Decompiling 000c7270, pcode error at 000c7270: Unable to disassemble EXTERNAL block location: 000c7270 (DecompileCallback)  
+WARN  Decompiling 000c7278, pcode error at 000c7278: Unable to disassemble EXTERNAL block location: 000c7278 (DecompileCallback)  
+WARN  Decompiling 000c7280, pcode error at 000c7280: Unable to disassemble EXTERNAL block location: 000c7280 (DecompileCallback)  
+WARN  Decompiling 000c7288, pcode error at 000c7288: Unable to disassemble EXTERNAL block location: 000c7288 (DecompileCallback)  
+WARN  Decompiling 000c7290, pcode error at 000c7290: Unable to disassemble EXTERNAL block location: 000c7290 (DecompileCallback)  
+WARN  Decompiling 000c7298, pcode error at 000c7298: Unable to disassemble EXTERNAL block location: 000c7298 (DecompileCallback)  
+WARN  Decompiling 000c72a0, pcode error at 000c72a0: Unable to disassemble EXTERNAL block location: 000c72a0 (DecompileCallback)  
+WARN  Decompiling 000c72a8, pcode error at 000c72a8: Unable to disassemble EXTERNAL block location: 000c72a8 (DecompileCallback)  
+WARN  Decompiling 000c72b0, pcode error at 000c72b0: Unable to disassemble EXTERNAL block location: 000c72b0 (DecompileCallback)  
+WARN  Decompiling 000c72b8, pcode error at 000c72b8: Unable to disassemble EXTERNAL block location: 000c72b8 (DecompileCallback)  
+WARN  Decompiling 000c72c0, pcode error at 000c72c0: Unable to disassemble EXTERNAL block location: 000c72c0 (DecompileCallback)  
+INFO  DumpAll.java> TOTAL 1264 (GhidraScript)  
+INFO  ANALYZING changes made by post scripts: file:///tmp/g052/libagy_bridge.so (HeadlessAnalyzer)  
+INFO  REPORT: Post-analysis succeeded for file: file:///tmp/g052/libagy_bridge.so (HeadlessAnalyzer)  
+INFO  /libagy_bridge.so: file created (root) (LocalFileSystem)  
+INFO  REPORT: Save succeeded for: /libagy_bridge.so (p:/libagy_bridge.so) (HeadlessAnalyzer)  
+INFO  REPORT: Import succeeded (HeadlessAnalyzer)  

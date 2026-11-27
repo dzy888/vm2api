@@ -1,0 +1,27 @@
+// 00730de0 <gimli[a7f20a324fd82d99]::read::dwarf::Dwarf<gimli[a7f20a324fd82d99]::read::endian_slice::EndianSlice<gimli[a7f20a324fd82d99]::endianity::LittleEndian>>>
+
+/* core[c0acaeba6ab4c2e0]::ptr::drop_glue::<gimli[a7f20a324fd82d99]::read::dwarf::Dwarf<gimli[a7f20a324fd82d99]::read::endian_slice::EndianSlice<gimli[a7f20a324fd82d99]::endianity::LittleEndian>>>
+    */
+
+void __rustcall
+core[c0acaeba6ab4c2e0]::ptr::drop_glue::
+<gimli[a7f20a324fd82d99]::read::dwarf::Dwarf<gimli[a7f20a324fd82d99]::read::endian_slice::EndianSlice<gimli[a7f20a324fd82d99]::endianity::LittleEndian>>>
+          (longlong param_1)
+
+{
+  longlong *plVar1;
+  
+  plVar1 = *(longlong **)(param_1 + 0xf0);
+  if (plVar1 != (longlong *)0x0) {
+    LOCK();
+    *plVar1 = *plVar1 + -1;
+    UNLOCK();
+    if (*plVar1 == 0) {
+      (*(code *)PTR_drop_slow_0079ac18)();
+    }
+  }
+  <gimli[a7f20a324fd82d99]::read::abbrev::AbbreviationsCache>(param_1 + 0xf8);
+  return;
+}
+
+

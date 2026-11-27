@@ -1,0 +1,22 @@
+// 003c9990 <alloc[12e961f32105355]::vec::Vec<(alloc[12e961f32105355]::sync::Arc<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>,core[c0acaeba6ab4c2e0]::option::Option<std[6c98fd8553dbae28]::path::PathBuf>)>>
+
+/* WARNING: Switch with 1 destination removed at 0x003c99c1 */
+/* core[c0acaeba6ab4c2e0]::ptr::drop_glue::<alloc[12e961f32105355]::vec::Vec<(alloc[12e961f32105355]::sync::Arc<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>,
+   core[c0acaeba6ab4c2e0]::option::Option<std[6c98fd8553dbae28]::path::PathBuf>)>> */
+
+void __rustcall
+core[c0acaeba6ab4c2e0]::ptr::drop_glue::
+<alloc[12e961f32105355]::vec::Vec<(alloc[12e961f32105355]::sync::Arc<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>,core[c0acaeba6ab4c2e0]::option::Option<std[6c98fd8553dbae28]::path::PathBuf>)>>
+          (longlong *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)
+
+{
+  <[(alloc[12e961f32105355]::sync::Arc<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>,core[c0acaeba6ab4c2e0]::option::Option<std[6c98fd8553dbae28]::path::PathBuf>)]>
+            (param_1[1],param_1[2]);
+  if (*param_1 == 0) {
+    return;
+  }
+  (*(code *)PTR_free_0079adc8)(param_4,8);
+  return;
+}
+
+

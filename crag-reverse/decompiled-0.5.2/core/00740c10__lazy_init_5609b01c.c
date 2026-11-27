@@ -1,0 +1,39 @@
+// 00740c10 lazy_init
+
+/* WARNING: Removing unreachable block (ram,0x00740c67) */
+/* WARNING: Removing unreachable block (ram,0x00740c6b) */
+/* WARNING: Removing unreachable block (ram,0x00740c76) */
+/* WARNING: Removing unreachable block (ram,0x00740c82) */
+/* <std[6c98fd8553dbae28]::sys::thread_local::key::racy::LazyKey>::lazy_init */
+
+undefined8 __rustcall
+<std[6c98fd8553dbae28]::sys::thread_local::key::racy::LazyKey>::lazy_init(void)
+
+{
+  code *pcVar1;
+  int iVar2;
+  undefined8 uVar3;
+  undefined1 local_11;
+  
+  iVar2 = (*(code *)PTR_pthread_key_create_0079adf8)();
+  if ((iVar2 == 0) && (iVar2 = (*(code *)PTR_pthread_key_create_0079adf8)(), iVar2 == 0)) {
+    (*(code *)PTR_pthread_key_delete_0079ae00)();
+  }
+  else {
+    uVar3 = <std[6c98fd8553dbae28]::sys::stdio::unix::Stderr_as_std[6c98fd8553dbae28]::io::Write>::
+            write_fmt(&local_11,"fatal runtime error: out of TLS keys, aborting\n",0x5f);
+    core[c0acaeba6ab4c2e0]::ptr::drop_glue::
+    <core[c0acaeba6ab4c2e0]::result::Result<(),core[c0acaeba6ab4c2e0]::io::error::Error>>(uVar3);
+    (*(code *)PTR_abort_00799748)();
+  }
+  uVar3 = <std[6c98fd8553dbae28]::sys::stdio::unix::Stderr_as_std[6c98fd8553dbae28]::io::Write>::
+          write_fmt(&local_11,&DAT_001c0111,0x9b);
+  core[c0acaeba6ab4c2e0]::ptr::drop_glue::
+  <core[c0acaeba6ab4c2e0]::result::Result<(),core[c0acaeba6ab4c2e0]::io::error::Error>>(uVar3);
+  (*(code *)PTR_abort_00799748)();
+  pcVar1 = (code *)swi(3);
+  uVar3 = (*pcVar1)();
+  return uVar3;
+}
+
+

@@ -1,0 +1,13 @@
+// 0079e278 mkdir
+
+/* WARNING: Control flow encountered bad instruction data */
+/* WARNING: Unknown calling convention -- yet parameter storage is locked */
+
+int mkdir(char *__path,__mode_t __mode)
+
+{
+                    /* WARNING: Bad instruction - Truncating control flow here */
+  halt_baddata();
+}
+
+

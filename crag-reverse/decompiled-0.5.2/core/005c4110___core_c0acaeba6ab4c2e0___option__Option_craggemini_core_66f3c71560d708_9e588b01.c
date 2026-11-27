@@ -1,0 +1,70 @@
+// 005c4110 <core[c0acaeba6ab4c2e0]::option::Option<craggemini_core[66f3c71560d70857]::tools::WebFetchConfig>>
+
+/* WARNING: Switch with 1 destination removed at 0x005c4258 */
+/* core[c0acaeba6ab4c2e0]::ptr::drop_glue::<core[c0acaeba6ab4c2e0]::option::Option<craggemini_core[66f3c71560d70857]::tools::WebFetchConfig>>
+    */
+
+void __rustcall
+core[c0acaeba6ab4c2e0]::ptr::drop_glue::
+<core[c0acaeba6ab4c2e0]::option::Option<craggemini_core[66f3c71560d70857]::tools::WebFetchConfig>>
+          (longlong *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)
+
+{
+  undefined *puVar1;
+  longlong lVar2;
+  longlong lVar3;
+  longlong lVar4;
+  
+  puVar1 = PTR___rust_dealloc_00798fc8;
+  lVar4 = *param_1;
+  if (lVar4 != -1) {
+    lVar2 = param_1[2];
+    if (lVar2 != 0) {
+      lVar3 = param_1[1] + 8;
+      do {
+        if (*(longlong *)(lVar3 + -8) != 0) {
+          (*(code *)puVar1)(param_4,1);
+        }
+        lVar3 = lVar3 + 0x18;
+        lVar2 = lVar2 + -1;
+      } while (lVar2 != 0);
+    }
+    if (lVar4 != 0) {
+      (*(code *)PTR___rust_dealloc_00798fc8)(param_4,8);
+    }
+    puVar1 = PTR___rust_dealloc_00798fc8;
+    lVar4 = param_1[5];
+    if (lVar4 != 0) {
+      lVar2 = param_1[4] + 8;
+      do {
+        if (*(longlong *)(lVar2 + -8) != 0) {
+          (*(code *)puVar1)(param_4,1);
+        }
+        lVar2 = lVar2 + 0x18;
+        lVar4 = lVar4 + -1;
+      } while (lVar4 != 0);
+    }
+    if (param_1[3] != 0) {
+      (*(code *)PTR___rust_dealloc_00798fc8)(param_4,8);
+    }
+    puVar1 = PTR___rust_dealloc_00798fc8;
+    lVar4 = param_1[8];
+    if (lVar4 != 0) {
+      lVar2 = param_1[7] + 8;
+      do {
+        if (*(longlong *)(lVar2 + -8) != 0) {
+          (*(code *)puVar1)(param_4,1);
+        }
+        lVar2 = lVar2 + 0x18;
+        lVar4 = lVar4 + -1;
+      } while (lVar4 != 0);
+    }
+    if (param_1[6] != 0) {
+      (*(code *)PTR_free_0079adc8)(param_4,8);
+      return;
+    }
+  }
+  return;
+}
+
+

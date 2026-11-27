@@ -1,0 +1,13 @@
+// 00710f40 read
+
+/* <&mio[4b4dae02747c797f]::net::tcp::stream::TcpStream as std[6c98fd8553dbae28]::io::Read>::read */
+
+void __rustcall
+<&mio[4b4dae02747c797f]::net::tcp::stream::TcpStream_as_std[6c98fd8553dbae28]::io::Read>::read(void)
+
+{
+  (*(code *)PTR_read_0079ab08)();
+  return;
+}
+
+

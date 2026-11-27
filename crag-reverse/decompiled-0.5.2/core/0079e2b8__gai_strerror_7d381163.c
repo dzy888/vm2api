@@ -1,0 +1,13 @@
+// 0079e2b8 gai_strerror
+
+/* WARNING: Control flow encountered bad instruction data */
+/* WARNING: Unknown calling convention -- yet parameter storage is locked */
+
+char * gai_strerror(int __ecode)
+
+{
+                    /* WARNING: Bad instruction - Truncating control flow here */
+  halt_baddata();
+}
+
+

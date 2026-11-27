@@ -1,0 +1,71 @@
+// 004d7b50 <craggemini_core[66f3c71560d70857]::protocol::UpstreamErrorDetail>
+
+/* WARNING: Switch with 1 destination removed at 0x004d7d62 */
+/* core[c0acaeba6ab4c2e0]::ptr::drop_glue::<craggemini_core[66f3c71560d70857]::protocol::UpstreamErrorDetail>
+    */
+
+void __rustcall
+core[c0acaeba6ab4c2e0]::ptr::drop_glue::
+<craggemini_core[66f3c71560d70857]::protocol::UpstreamErrorDetail>
+          (longlong param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)
+
+{
+  longlong lVar1;
+  longlong lVar2;
+  longlong lVar3;
+  
+  if ((*(longlong *)(param_1 + 0x10) != -1) && (*(longlong *)(param_1 + 0x10) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0x28) != -1) && (*(longlong *)(param_1 + 0x28) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0x40) != -1) && (*(longlong *)(param_1 + 0x40) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0x58) != -1) && (*(longlong *)(param_1 + 0x58) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0x70) != -1) && (*(longlong *)(param_1 + 0x70) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0x88) != -1) && (*(longlong *)(param_1 + 0x88) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0xa0) != -1) && (*(longlong *)(param_1 + 0xa0) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0xb8) != -1) && (*(longlong *)(param_1 + 0xb8) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0xd0) != -1) && (*(longlong *)(param_1 + 0xd0) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0xe8) != -1) && (*(longlong *)(param_1 + 0xe8) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  if ((*(longlong *)(param_1 + 0x100) != -1) && (*(longlong *)(param_1 + 0x100) != 0)) {
+    (*(code *)PTR___rust_dealloc_00798fc8)(param_4,1);
+  }
+  lVar1 = *(longlong *)(param_1 + 0x118);
+  if (lVar1 != -1) {
+    lVar3 = *(longlong *)(param_1 + 0x120);
+    for (lVar2 = *(longlong *)(param_1 + 0x128) + 1; lVar2 != 1; lVar2 = lVar2 + -1) {
+      <serde_json[dc3825464c436029]::value::Value>(lVar3);
+      lVar3 = lVar3 + 0x20;
+    }
+    if (lVar1 != 0) {
+      (*(code *)PTR___rust_dealloc_00798fc8)(param_4,8);
+    }
+  }
+  if (*(char *)(param_1 + 0x150) != -1) {
+    <serde_json[dc3825464c436029]::value::Value>(param_1 + 0x150);
+  }
+  if ((*(longlong *)(param_1 + 0x130) == -1) || (*(longlong *)(param_1 + 0x130) == 0)) {
+    return;
+  }
+  (*(code *)PTR_free_0079adc8)(param_4,1);
+  return;
+}
+
+

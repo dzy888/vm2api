@@ -1,0 +1,31 @@
+// 0009e2b0 drop_slow
+
+/* WARNING: Switch with 1 destination removed at 0x0009e2e1 */
+/* <alloc[12e961f32105355]::sync::Arc<gimli[a7f20a324fd82d99]::read::abbrev::Abbreviations>>::drop_slow
+    */
+
+void __rustcall
+<alloc[12e961f32105355]::sync::Arc<gimli[a7f20a324fd82d99]::read::abbrev::Abbreviations>>::drop_slow
+          (longlong *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)
+
+{
+  longlong *plVar1;
+  longlong lVar2;
+  
+  lVar2 = *param_1;
+  core[c0acaeba6ab4c2e0]::ptr::drop_glue::<gimli[a7f20a324fd82d99]::read::abbrev::Abbreviations>
+            (lVar2 + 0x10);
+  if (lVar2 != -1) {
+    LOCK();
+    plVar1 = (longlong *)(lVar2 + 8);
+    *plVar1 = *plVar1 + -1;
+    UNLOCK();
+    if (*plVar1 == 0) {
+      (*(code *)PTR_free_000c4290)(param_4,8);
+      return;
+    }
+  }
+  return;
+}
+
+

@@ -1,0 +1,128 @@
+// 0017c800 {closure#1}
+
+/* <std[6c98fd8553dbae28]::sync::mpmc::list::Channel<(serde_json[dc3825464c436029]::value::Value,
+   bool, 
+   core[c0acaeba6ab4c2e0]::option::Option<std[6c98fd8553dbae28]::sync::mpsc::SyncSender<()>>)>>::recv::{closure#1}
+    */
+
+void __rustcall
+<std[6c98fd8553dbae28]::sync::mpmc::list::Channel<(serde_json[dc3825464c436029]::value::Value,bool,core[c0acaeba6ab4c2e0]::option::Option<std[6c98fd8553dbae28]::sync::mpsc::SyncSender<()>>)>>
+::recv::_closure_1_(undefined8 *param_1,longlong param_2)
+
+{
+  ulonglong uVar1;
+  uint uVar2;
+  undefined8 uVar3;
+  ulonglong *puVar4;
+  longlong lVar5;
+  code *pcVar6;
+  bool bVar7;
+  longlong *plVar8;
+  undefined *puVar9;
+  undefined *puVar10;
+  undefined *puVar11;
+  longlong lVar12;
+  ulonglong uVar13;
+  ulonglong uVar14;
+  uint uVar15;
+  longlong extraout_RDX;
+  undefined4 local_68;
+  undefined4 uStack_64;
+  undefined4 uStack_60;
+  undefined4 uStack_5c;
+  undefined8 local_58;
+  undefined4 local_48;
+  undefined4 uStack_44;
+  undefined4 uStack_40;
+  undefined4 uStack_3c;
+  undefined8 local_38;
+  
+  uVar3 = *param_1;
+  puVar4 = (ulonglong *)param_1[1];
+  <std[6c98fd8553dbae28]::sync::mpmc::waker::SyncWaker>::register(puVar4 + 0x20,uVar3,param_2);
+  if ((1 < (puVar4[0x10] ^ *puVar4)) || ((puVar4[0x10] & 1) != 0)) {
+    LOCK();
+    if (*(longlong *)(param_2 + 0x18) == 0) {
+      *(longlong *)(param_2 + 0x18) = 1;
+    }
+    UNLOCK();
+  }
+  puVar11 = PTR_park_00219fe0;
+  puVar10 = PTR_park_timeout_00219fd0;
+  puVar9 = PTR_now_00219fc8;
+  uVar2 = *(uint *)((longlong *)param_1[2] + 1);
+  if (uVar2 == 0xffffffff) {
+    uVar14 = *(ulonglong *)(param_2 + 0x18);
+    while (uVar14 == 0) {
+      (*(code *)puVar11)();
+      uVar14 = *(ulonglong *)(param_2 + 0x18);
+    }
+  }
+  else {
+    lVar5 = *(longlong *)param_1[2];
+    uVar14 = *(ulonglong *)(param_2 + 0x18);
+    lVar12 = extraout_RDX;
+    while (uVar14 == 0) {
+      uVar15 = (uint)lVar12;
+      lVar12 = (*(code *)puVar9)();
+      bVar7 = lVar12 < lVar5;
+      if (lVar12 == lVar5) {
+        bVar7 = uVar15 < uVar2;
+      }
+      if (!bVar7) {
+        uVar13 = 0;
+        LOCK();
+        uVar1 = *(ulonglong *)(param_2 + 0x18);
+        if (uVar1 == 0) {
+          *(ulonglong *)(param_2 + 0x18) = 1;
+        }
+        else {
+          uVar13 = uVar1;
+        }
+        UNLOCK();
+        uVar14 = 3;
+        if (uVar13 < 3) {
+          uVar14 = uVar13;
+        }
+        if (uVar1 == 0) goto LAB_0017c94e;
+        goto LAB_0017c944;
+      }
+      (*(code *)PTR_sub_00219fd8)();
+      (*(code *)puVar10)();
+      uVar14 = *(ulonglong *)(param_2 + 0x18);
+    }
+  }
+  if (uVar14 - 1 < 2) {
+LAB_0017c944:
+    if (uVar14 - 1 < 2) {
+LAB_0017c94e:
+      <std[6c98fd8553dbae28]::sync::mpmc::waker::SyncWaker>::unregister
+                (&local_48,puVar4 + 0x20,uVar3);
+      if (CONCAT44(uStack_44,local_48) == 0) goto LAB_0017c9bd;
+      local_58 = local_38;
+      local_68 = local_48;
+      uStack_64 = uStack_44;
+      uStack_60 = uStack_40;
+      uStack_5c = uStack_3c;
+      plVar8 = (longlong *)CONCAT44(uStack_44,local_48);
+      LOCK();
+      *plVar8 = *plVar8 + -1;
+      UNLOCK();
+      if (*plVar8 == 0) {
+        <alloc[12e961f32105355]::sync::Arc<std[6c98fd8553dbae28]::sync::mpmc::context::Inner>>::
+        drop_slow(&local_68);
+      }
+    }
+    else if (uVar14 != 3) {
+      (*(code *)PTR_panic_00219ca8)(uVar14,&PTR_s__rustc_48a229ceaefd4985c50990b14_002158c8);
+LAB_0017c9bd:
+      (*(code *)PTR_unwrap_failed_00219e58)();
+      pcVar6 = (code *)swi(3);
+      (*pcVar6)();
+      return;
+    }
+  }
+  return;
+}
+
+

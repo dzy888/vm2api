@@ -1,0 +1,31 @@
+// 006fece0 <tokio[d7d91d38da47d894]::task::coop::Coop<tokio[d7d91d38da47d894]::sync::watch::changed_impl<()>::{closure#0}>>
+
+/* core[c0acaeba6ab4c2e0]::ptr::drop_glue::<tokio[d7d91d38da47d894]::task::coop::Coop<tokio[d7d91d38da47d894]::sync::watch::changed_impl<()>::{closure#0}>>
+    */
+
+void __rustcall
+core[c0acaeba6ab4c2e0]::ptr::drop_glue::
+<tokio[d7d91d38da47d894]::task::coop::Coop<tokio[d7d91d38da47d894]::sync::watch::changed_impl<()>::_closure_0_>>
+          (longlong param_1)
+
+{
+  undefined8 local_30;
+  longlong local_28;
+  longlong local_20;
+  longlong local_18;
+  
+  if (*(char *)(param_1 + 0x21) == '\x04') {
+    local_30 = *(undefined8 *)(param_1 + 0x28);
+    local_28 = param_1 + 0x60;
+    local_20 = param_1 + 0x30;
+    local_18 = param_1 + 0x38;
+    <tokio[d7d91d38da47d894]::sync::notify::NotifiedProject>::drop_notified(&local_30);
+    if (*(longlong *)(param_1 + 0x48) != 0) {
+      (**(code **)(*(longlong *)(param_1 + 0x48) + 0x18))();
+    }
+    *(undefined1 *)(param_1 + 0x20) = 0;
+  }
+  return;
+}
+
+

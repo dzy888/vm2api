@@ -1,0 +1,82 @@
+// 00578920 <<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>::spawn::{closure#0}::{closure#10}>
+
+/* tokio[d7d91d38da47d894]::task::spawn::spawn::<<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>::spawn::{closure#0}::{closure#10}>
+    */
+
+void __rustcall
+tokio[d7d91d38da47d894]::task::spawn::spawn::
+<<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>::spawn::_closure_0_::_closure_10_>
+          (undefined8 param_1)
+
+{
+  longlong lVar1;
+  code *pcVar2;
+  longlong lVar3;
+  undefined *puVar4;
+  longlong **pplVar5;
+  longlong *in_FS_OFFSET;
+  undefined1 local_421;
+  longlong local_420;
+  longlong *local_418;
+  undefined1 *local_410;
+  longlong *local_318;
+  undefined *local_310;
+  undefined1 local_218 [256];
+  undefined1 local_118 [240];
+  
+  puVar4 = PTR_NEXT_ID_00799878;
+  do {
+    LOCK();
+    local_420 = *(longlong *)puVar4;
+    *(longlong *)puVar4 = *(longlong *)puVar4 + 1;
+    UNLOCK();
+  } while (local_420 == 0);
+  local_418 = &local_420;
+  local_410 = &local_421;
+  (*(code *)PTR_memcpy_00799008)(local_420,0xf0);
+  lVar1 = *in_FS_OFFSET;
+  if ((char)in_FS_OFFSET[-0x1e] != '\0') {
+    if ((char)in_FS_OFFSET[-0x1e] != '\x01') {
+      core[c0acaeba6ab4c2e0]::ptr::drop_glue::
+      <tokio[d7d91d38da47d894]::task::spawn::spawn_inner<<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>::spawn::_closure_0_::_closure_10_>::_closure_0_>
+                (&local_418,param_1);
+      local_218[0] = 1;
+      goto LAB_00578a76;
+    }
+    (*(code *)PTR_register_00799240)();
+    *(undefined1 *)(in_FS_OFFSET + -0x1e) = 0;
+  }
+  (*(code *)PTR_memcpy_00799008)();
+  if (0x7ffffffffffffffe < (ulonglong)in_FS_OFFSET[-0x27]) {
+    (*(code *)PTR_panic_already_mutably_borrowed_00799db0)();
+                    /* WARNING: Does not return */
+    pcVar2 = (code *)invalidInstructionException();
+    (*pcVar2)();
+  }
+  in_FS_OFFSET[-0x27] = in_FS_OFFSET[-0x27] + 1;
+  lVar3 = in_FS_OFFSET[-0x26];
+  pplVar5 = &local_418;
+  (*(code *)PTR_memcpy_00799008)(0x7fffffffffffffff,0x100);
+  if ((int)lVar3 != 2) {
+    (*(code *)PTR_memcpy_00799008)();
+    ::<tokio[d7d91d38da47d894]::runtime::scheduler::Handle>::spawn::
+    <<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>::spawn::_closure_0_::_closure_10_>
+              (lVar1 + -0x130,local_118,*local_318);
+    in_FS_OFFSET[-0x27] = in_FS_OFFSET[-0x27] + -1;
+    return;
+  }
+  do {
+    core[c0acaeba6ab4c2e0]::ptr::drop_glue::
+    <tokio[d7d91d38da47d894]::task::spawn::spawn_inner<<craggemini_core[66f3c71560d70857]::acp_backend::AcpAccountWorker>::spawn::_closure_0_::_closure_10_>::_closure_0_>
+              (&local_318,pplVar5);
+    in_FS_OFFSET[-0x27] = in_FS_OFFSET[-0x27] + -1;
+    local_218[0] = 0;
+LAB_00578a76:
+    local_318 = (longlong *)local_218;
+    local_310 = PTR_fmt_00799db8;
+    pplVar5 = &local_318;
+    (*(code *)PTR_panic_fmt_007991a8)();
+  } while( true );
+}
+
+
