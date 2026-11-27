@@ -5,6 +5,7 @@
 import { setSlotDesktopEnabled, slotDesktopStatus } from '../vm/slot-desktop.mjs'
 import { installGeminiPayload, readPinnedCragGeminiPublicKeySha256 } from '../gemini/payload.mjs'
 import { validateGeminiRoutingPatch } from '../gemini/routing-config.mjs'
+import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -3656,6 +3657,19 @@ export function createPanelHandler(ctx) {
               })
             fs.copyFileSync(installedAgy, selfAgy)
             fs.chmodSync(selfAgy, 0o755)
+          }
+          // agy 1.5.9 eligibility gate must be patched to match the manifest digest.
+          const patcher = path.join(cfg.paths.project, 'scripts', 'gemini_agy_patch.py')
+          try {
+            execFileSync('python3', ['-I', patcher, 'patch', '--no-backup', '--path', selfAgy], {
+              stdio: 'ignore',
+              timeout: 120_000,
+            })
+          } catch {
+            return json(res, 400, {
+              ok: false,
+              error: { code: 'gemini_self_agy_patch_failed', message: 'agy eligibility 补丁应用失败' },
+            })
           }
           const version = await installGeminiPayload(selfDir, currentDir, pem)
           return json(res, 200, panel.ok({ version }))

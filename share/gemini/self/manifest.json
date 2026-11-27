@@ -1,7 +1,7 @@
 {
   "family": "crag",
   "version": "v1",
-  "software_version": "0.5.0",
+  "software_version": "0.5.2",
   "arch": "amd64",
   "runtime": "native",
   "entrypoint": "craggemini",
@@ -18,9 +18,9 @@
     "format": "CRAGV2E1",
     "algorithm": "aes-256-gcm",
     "key_id": "d24708771dcfa242e133e6097136b1c734bec2eed850a0f2a9c756d1f46b56f5",
-    "plaintext_sha256": "c04fdcea223f35540fec1ca1328f3998ea91abc163c123b5a6d2aab7484b3fc1",
-    "ciphertext_sha256": "87ec47144743a3eefb75127740a7373aabfaf39b65aeeb5d4d70c9ac1e75b9ca",
-    "signature": "DxVimmKKbupjzkrfkz3kP2bRjEgAPiBpLrLZVW1LZoaCvdnkOkg87u3rASu1UpatNFqM72ZCOp6NZA_DHvwmCw"
+    "plaintext_sha256": "a06aa75c4fd982a672d508d037151337ed7e436dc688ba3b01aa55fb143a8d09",
+    "ciphertext_sha256": "7786fa6c9c808042eef6bc73c6e52caf7b36185d375175720ceebef4df6301fc",
+    "signature": "8eTU7OUa3Zq5AcSw0oKmOvPQN4ZIgi6PzgiKl3cVWAIcKMqZgPcCpCZHBUb7bSB6S06cunp_tbRyI0lpLgbiBA"
   },
   "capabilities": [
     "native_tui",
@@ -53,10 +53,10 @@
     "acp_headless_v1"
   ],
   "sha256": {
-    "craggemini": "66b33e92d2a98ef807ebcd93baff902ee65e1cb6f853a1a0881da5ae8d5bf0f4",
-    "craggemini.payload.enc": "87ec47144743a3eefb75127740a7373aabfaf39b65aeeb5d4d70c9ac1e75b9ca",
-    "libagy_bridge.so": "5eef4ca5a97addacbfac240156a06967948c6f4ddc75eee5233d1ee5083d2204",
+    "craggemini": "455793401c67f0291a7ae3e00fbf558cc645a40280ca9b97449f8fb41b9c2c1b",
+    "craggemini.payload.enc": "7786fa6c9c808042eef6bc73c6e52caf7b36185d375175720ceebef4df6301fc",
+    "libagy_bridge.so": "be0f14d1abca9cafb3d6c3aecebe5ee6e60300da3470ce46322113e138364d09",
     "crag-license-public.pem": "f6e3ef3a50fd49abd4ce3519db512af74fc438b47b1bbec83f6602ebe4b3930a",
-    "agy": "39816d49d5ab92229952987225c23ea3fed7580699dcb4a444e0388e0ac1ce43"
+    "agy": "bca88dab4d2b921d95e1228326631837ff468efef505088d9ab5dbb057f26157"
   }
 }
