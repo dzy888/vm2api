@@ -88,3 +88,29 @@ Verified twice through the panel `test-chat` (real host, bwrap, real agy):
 {"state":"completed","text":"self-kernel-ok","usage":{"input_tokens":3900,"output_tokens":33}}
 {"state":"completed","text":"second-ok","usage":{"input_tokens":3902,"output_tokens":27}}
 ```
+
+## Maintenance page and the version string (2026-11-28)
+
+Clicking maintenance actions failed with `gemini_maintenance_downgrade_blocked`. Root
+cause is the maintenance service's parser, `version_order`
+(`/usr/local/lib/vm2api-gemini-maintenance/scripts/gemini-maintenance.py:612`):
+
+```python
+r"(\d{1,9})\.(\d{1,9})\.(\d{1,9})(?:-rc\.(\d{1,9}))?"
+```
+
+`0.5.2-self` does not match, so `version_order` returns `None`, `can_update` is false,
+every `update_*` job is rejected with 409 and the release is reported `compatible:false`.
+
+Fix: the self manifest keeps `software_version: "0.5.2"` (equal to the target release).
+Build identity goes into `unpack-note.md`, which is an allowed optional manifest member
+(`CRAG_OPTIONAL_FILES`) carrying commit, build time and core sha256.
+
+After the change: release `compatible:true`, `update_native` completes, `diagnose`
+passes with `state:installed`, chat still returns real text. Note that a successful
+`update_native` restores the **signed official** payload — reinstall the self build to
+switch back.
+
+The `kernel-self/install` route does not notify the maintenance cache, so right after
+installing the status shows `unverified` (`gemini_maintenance_payload_unverified`) until
+a `diagnose` runs. Running `diagnose` settles it to `installed`.
