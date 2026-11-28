@@ -113,6 +113,10 @@ const FAILURES = {
   magpie_slot_not_configured: [503, 'This Gemini slot has no Magpie backend route configured.'],
   magpie_backend_not_allowed: [403, 'This Magpie backend is not enabled for the selected Gemini slot.'],
   magpie_model_invalid: [400, 'The selected Magpie model does not match the slot backend.'],
+  magpie_key_not_allowed: [403, 'The selected Magpie gateway key ID is not enabled for this kernel.'],
+  magpie_key_unavailable: [503, 'The selected Magpie gateway key is unavailable.'],
+  magpie_queue_full: [429, 'The Magpie account queue is full. Retry after Magpie concurrency clears.'],
+  magpie_queue_timeout: [504, 'The request waited too long for the Magpie account concurrency/RPM limit.'],
   gemini_unsupported_turn: [
     400,
     'The selected Gemini environment does not support the requested tools, history, parameters, or media.',
@@ -1921,7 +1925,7 @@ export function createGeminiScheduler({
                 },
               ])
               invalidateCatalogCache()
-            } else if (NON_CIRCUIT_FAILURES.has(failureCode) || isUpstream503 || isLocalBridgeDisconnect) {
+            } else if (isMagpieBackend || NON_CIRCUIT_FAILURES.has(failureCode) || isUpstream503 || isLocalBridgeDisconnect) {
               poolScheduler?.unitCircuit?.releaseProbe?.(accountKey)
             } else {
               poolScheduler?.unitCircuit?.recordFailure?.(accountKey)
@@ -2039,7 +2043,7 @@ export function createGeminiScheduler({
             }
 
             const failureReport = buildGeminiFailureReport(failure, attemptUpstreamStatus)
-            if (failure?.contentRejected !== true && (FAILOVER_ERRORS.has(failureCode) || willMarkUnschedulable502)) {
+            if (!isMagpieBackend && failure?.contentRejected !== true && (FAILOVER_ERRORS.has(failureCode) || willMarkUnschedulable502)) {
               clearConversationMemory(effectiveStickyKey)
             }
             excludedNodeKeys.add(formatNodeKey('gemini_env', id))

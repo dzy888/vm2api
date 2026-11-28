@@ -288,6 +288,8 @@ test('Gemini panel supports schedulable, prefs, recover, and owner with schedule
     max_concurrency: 24,
     inference_backend: 'claude',
     magpie_model: 'claude/claude-sonnet-5-5',
+    magpie_account: 'claude-user@example.test',
+    magpie_key_id: 'claude-key',
   })
   assert.equal(prefsRes.status, 200)
   assert.equal(prefsRes.body.data.name, '主力 Gemini')
@@ -297,6 +299,8 @@ test('Gemini panel supports schedulable, prefs, recover, and owner with schedule
   assert.equal((await geminiScheduler.catalog()).accounts[0].schedule_level, 9)
   assert.equal(prefsRes.body.data.inference_backend, 'claude')
   assert.equal(prefsRes.body.data.magpie_model, 'claude/claude-sonnet-5-5')
+  assert.equal(prefsRes.body.data.magpie_account, 'claude-user@example.test')
+  assert.equal(prefsRes.body.data.magpie_key_id, 'claude-key')
   assert.equal((await geminiScheduler.catalog()).accounts[0].inference_backend, 'claude')
   assert.equal((await geminiScheduler.catalog()).accounts[0].magpie_model, 'claude/claude-sonnet-5-5')
   assert.ok(hostOps.some((x) => x.op === 'concurrency-set' && x.payload.max_concurrency === 24))

@@ -25,6 +25,10 @@ services:
       - ./config.json:/etc/vm2api-magpie/kernel.json:ro
       - ./secrets/internal-token:/run/secrets/internal-token:ro
       - ./secrets/gateway-key:/run/secrets/gateway-key:ro
+      - ./secrets/gemini-slots-key:/run/secrets/gemini-slots-key:ro
+      - ./secrets/claude-slots-key:/run/secrets/claude-slots-key:ro
+      - ./secrets/gemini-slots-key:/run/secrets/gemini-slots-key:ro
+      - ./secrets/claude-slots-key:/run/secrets/claude-slots-key:ro
       - ./run:/run/vm2api-magpie
     depends_on:
       - magpie

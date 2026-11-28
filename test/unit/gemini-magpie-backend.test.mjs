@@ -23,20 +23,28 @@ test('Gemini slot stores a Magpie backend/model route and resets to native', () 
   prefs.patch('env-a', {
     inference_backend: 'agy-cli',
     magpie_model: 'agy-cli/gemini-4-flash',
+    magpie_account: 'agy-user@example.test',
+    magpie_key_id: 'agy-gateway-key',
   })
   assert.equal(prefs.resolved('env-a').inference_backend, 'agy-cli')
   assert.equal(prefs.resolved('env-a').magpie_model, 'agy-cli/gemini-4-flash')
+  assert.equal(prefs.resolved('env-a').magpie_account, 'agy-user@example.test')
+  assert.equal(prefs.resolved('env-a').magpie_key_id, 'agy-gateway-key')
 
   prefs.patch('env-a', {
     inference_backend: 'claude',
     magpie_model: 'claude/claude-sonnet-5-5',
+    magpie_account: 'claude-user@example.test',
   })
   assert.equal(prefs.resolved('env-a').inference_backend, 'claude')
   assert.equal(prefs.resolved('env-a').magpie_model, 'claude/claude-sonnet-5-5')
+  assert.equal(prefs.resolved('env-a').magpie_account, 'claude-user@example.test')
 
   prefs.patch('env-a', { inference_backend: 'native', magpie_model: null })
   assert.equal(prefs.resolved('env-a').inference_backend, 'native')
   assert.equal(prefs.resolved('env-a').magpie_model, null)
+  assert.equal(prefs.resolved('env-a').magpie_account, null)
+  assert.equal(prefs.resolved('env-a').magpie_key_id, null)
 })
 
 test('Gemini slot rejects a model from another Magpie provider', () => {
@@ -52,6 +60,8 @@ test('Gemini scheduler forwards each slot Magpie backend/model to the host', asy
   slotPrefs.patch('env-magpie', {
     inference_backend: 'claude',
     magpie_model: 'claude/claude-sonnet-5-5',
+    magpie_account: 'claude-user@example.test',
+    magpie_key_id: 'claude-gateway-key',
   })
   let inferenceRequest = null
   const scheduler = createGeminiScheduler({
@@ -98,4 +108,6 @@ test('Gemini scheduler forwards each slot Magpie backend/model to the host', asy
   assert.equal(inferenceRequest.id, 'env-magpie')
   assert.equal(inferenceRequest.magpie_backend, 'claude')
   assert.equal(inferenceRequest.magpie_model, 'claude/claude-sonnet-5-5')
+  assert.equal(inferenceRequest.magpie_account, 'claude-user@example.test')
+  assert.equal(inferenceRequest.magpie_key_id, 'claude-gateway-key')
 })

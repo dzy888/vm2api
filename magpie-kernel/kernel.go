@@ -24,22 +24,23 @@ import (
 const maxRequestBytes = 32 << 20
 
 var slotIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+var modelSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9._~+@-]{1,128}$`)
 
 type Config struct {
-	Socket                 string          `json:"socket"`
-	InternalTokenFile      string          `json:"internal_token_file"`
-	MagpieBaseURL          string          `json:"magpie_base_url"`
-	MagpieAPIKeyFile       string          `json:"magpie_api_key_file"`
-	MagpieAPIKeyFiles      map[string]string `json:"magpie_api_key_files,omitempty"`
-	FirstByteTimeoutSecond int             `json:"first_byte_timeout_seconds"`
-	StreamIdleTimeoutSecond int            `json:"stream_idle_timeout_seconds"`
-	QueueWaitSecond        int             `json:"queue_wait_seconds"`
-	DefaultMaxConcurrency  int             `json:"default_max_concurrency"`
-	DefaultMaxRPM          int             `json:"default_max_rpm"`
-	DefaultQueueLimit      int             `json:"default_queue_limit"`
-	AllowDynamicSlots      bool            `json:"allow_dynamic_slots"`
-	DefaultAllowedBackends []string        `json:"default_allowed_backends,omitempty"`
-	Slots                  map[string]Slot `json:"slots"`
+	Socket                  string            `json:"socket"`
+	InternalTokenFile       string            `json:"internal_token_file"`
+	MagpieBaseURL           string            `json:"magpie_base_url"`
+	MagpieAPIKeyFile        string            `json:"magpie_api_key_file"`
+	MagpieAPIKeyFiles       map[string]string `json:"magpie_api_key_files,omitempty"`
+	FirstByteTimeoutSecond  int               `json:"first_byte_timeout_seconds"`
+	StreamIdleTimeoutSecond int               `json:"stream_idle_timeout_seconds"`
+	QueueWaitSecond         int               `json:"queue_wait_seconds"`
+	DefaultMaxConcurrency   int               `json:"default_max_concurrency"`
+	DefaultMaxRPM           int               `json:"default_max_rpm"`
+	DefaultQueueLimit       int               `json:"default_queue_limit"`
+	AllowDynamicSlots       bool              `json:"allow_dynamic_slots"`
+	DefaultAllowedBackends  []string          `json:"default_allowed_backends,omitempty"`
+	Slots                   map[string]Slot   `json:"slots"`
 }
 
 type Slot struct {
@@ -60,27 +61,27 @@ type Envelope struct {
 }
 
 type Kernel struct {
-	config  Config
-	token   []byte
-	apiKey  []byte
-	client  *http.Client
+	config    Config
+	token     []byte
+	apiKey    []byte
+	client    *http.Client
 	transport *http.Transport
-	baseURL *url.URL
+	baseURL   *url.URL
 	limiterMu sync.Mutex
-	limiters map[string]*upstreamLimiter
+	limiters  map[string]*upstreamLimiter
 }
 
 type upstreamLimiter struct {
-	sem chan struct{}
-	mu sync.Mutex
+	sem      chan struct{}
+	mu       sync.Mutex
 	requests []time.Time
-	waiters int
+	waiters  int
 }
 
 type limiterSettings struct {
 	maxConcurrency int
-	maxRPM int
-	queueLimit int
+	maxRPM         int
+	queueLimit     int
 }
 
 func loadConfig(path string) (Config, []byte, []byte, error) {
@@ -103,9 +104,15 @@ func loadConfig(path string) (Config, []byte, []byte, error) {
 	if err := validateConfig(config, token, apiKey); err != nil {
 		return config, nil, nil, err
 	}
-	if config.DefaultMaxConcurrency == 0 { config.DefaultMaxConcurrency = 2 }
-	if config.DefaultMaxRPM == 0 { config.DefaultMaxRPM = 30 }
-	if config.DefaultQueueLimit == 0 { config.DefaultQueueLimit = 16 }
+	if config.DefaultMaxConcurrency == 0 {
+		config.DefaultMaxConcurrency = 2
+	}
+	if config.DefaultMaxRPM == 0 {
+		config.DefaultMaxRPM = 30
+	}
+	if config.DefaultQueueLimit == 0 {
+		config.DefaultQueueLimit = 16
+	}
 	return config, token, apiKey, nil
 }
 
@@ -134,8 +141,12 @@ func validateConfig(config Config, token, apiKey []byte) error {
 	if err != nil || base.Host == "" || (base.Scheme != "http" && base.Scheme != "https") || base.User != nil {
 		return errors.New("magpie_base_url must be an http(s) URL without credentials")
 	}
-	if config.FirstByteTimeoutSecond < 1 || config.FirstByteTimeoutSecond > 600 || config.StreamIdleTimeoutSecond < 1 || config.StreamIdleTimeoutSecond > 3600 || config.QueueWaitSecond < 1 || config.QueueWaitSecond > 3600 { return errors.New("first-byte, stream-idle and queue-wait timeouts must be configured within supported bounds") }
-	if config.DefaultMaxConcurrency < 1 || config.DefaultMaxConcurrency > 1000 || config.DefaultMaxRPM < 1 || config.DefaultMaxRPM > 10000 || config.DefaultQueueLimit < 1 || config.DefaultQueueLimit > 10000 { return errors.New("default concurrency, RPM and queue limits must be positive and bounded") }
+	if config.FirstByteTimeoutSecond < 1 || config.FirstByteTimeoutSecond > 600 || config.StreamIdleTimeoutSecond < 1 || config.StreamIdleTimeoutSecond > 3600 || config.QueueWaitSecond < 1 || config.QueueWaitSecond > 3600 {
+		return errors.New("first-byte, stream-idle and queue-wait timeouts must be configured within supported bounds")
+	}
+	if config.DefaultMaxConcurrency < 1 || config.DefaultMaxConcurrency > 1000 || config.DefaultMaxRPM < 1 || config.DefaultMaxRPM > 10000 || config.DefaultQueueLimit < 1 || config.DefaultQueueLimit > 10000 {
+		return errors.New("default concurrency, RPM and queue limits must be positive and bounded")
+	}
 	if len(config.Slots) == 0 && !config.AllowDynamicSlots {
 		return errors.New("at least one slot backend must be configured")
 	}
@@ -164,7 +175,12 @@ func validateConfig(config Config, token, apiKey []byte) error {
 				return fmt.Errorf("slot %s has unsupported allowed backend %q", id, backend)
 			}
 		}
-		if slot.MaxConcurrency < 0 || slot.MaxConcurrency > 1000 || slot.MaxRPM < 0 || slot.MaxRPM > 10000 || slot.QueueLimit < 0 || slot.QueueLimit > 10000 { return fmt.Errorf("slot %s has invalid limiter settings", id) }
+		if slot.MaxConcurrency < 0 || slot.MaxConcurrency > 1000 || slot.MaxRPM < 0 || slot.MaxRPM > 10000 || slot.QueueLimit < 0 || slot.QueueLimit > 10000 {
+			return fmt.Errorf("slot %s has invalid limiter settings", id)
+		}
+		if slot.MagpieKeyID != "" && config.MagpieAPIKeyFiles[slot.MagpieKeyID] == "" {
+			return fmt.Errorf("slot %s references unknown Magpie key ID", id)
+		}
 	}
 	return nil
 }
@@ -175,7 +191,9 @@ func validSlotRoute(backend, model string) bool {
 		return false
 	}
 	for _, segment := range strings.Split(strings.TrimPrefix(model, prefix), "/") {
-		if segment == "" || segment == "." || segment == ".." { return false }
+		if segment == "" || segment == "." || segment == ".." || !modelSegmentPattern.MatchString(segment) {
+			return false
+		}
 	}
 	return true
 }
@@ -187,13 +205,13 @@ func newKernel(config Config, token, apiKey []byte) (*Kernel, error) {
 	}
 	transport := &http.Transport{ResponseHeaderTimeout: time.Duration(config.FirstByteTimeoutSecond) * time.Second}
 	return &Kernel{
-		config:  config,
-		token:   token,
-		apiKey:  apiKey,
-		baseURL: baseURL,
+		config:    config,
+		token:     token,
+		apiKey:    apiKey,
+		baseURL:   baseURL,
 		transport: transport,
-		client:  &http.Client{Transport: transport},
-		limiters: make(map[string]*upstreamLimiter),
+		client:    &http.Client{Transport: transport},
+		limiters:  make(map[string]*upstreamLimiter),
 	}, nil
 }
 
@@ -253,7 +271,9 @@ func (k *Kernel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		slot.Backend = requestedBackend
 		slot.Model = requestedModel
 	}
-	if account := r.Header.Get("x-magpie-account"); account != "" { slot.MagpieAccount = account }
+	if account := r.Header.Get("x-magpie-account"); account != "" {
+		slot.MagpieAccount = account
+	}
 	if keyID := r.Header.Get("x-magpie-key-id"); keyID != "" {
 		if !slotIDPattern.MatchString(keyID) || k.config.MagpieAPIKeyFiles[keyID] == "" {
 			writeError(w, http.StatusForbidden, "magpie_key_not_allowed", "Magpie gateway key ID is not configured")
@@ -325,13 +345,20 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 	upstreamURL.RawQuery = query.Encode()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	limiterKey := "slot:" + slotID
-	if slot.MagpieAccount != "" { limiterKey = "account:" + strings.ToLower(slot.MagpieAccount) }
-	if slot.MagpieKeyID != "" { limiterKey = "key:" + slot.MagpieKeyID } else { limiterKey += "|default-key" }
+	keyScope := slot.MagpieKeyID
+	if keyScope == "" {
+		keyScope = "default"
+	}
+	limiterKey := "key:" + keyScope
+	if slot.MagpieAccount != "" {
+		limiterKey = "account:" + strings.ToLower(slot.MagpieAccount)
+	}
 	settings := k.slotLimiterSettings(slot)
 	if err := k.acquireUpstream(ctx, limiterKey, settings); err != nil {
 		status, code := http.StatusServiceUnavailable, "magpie_queue_timeout"
-		if errors.Is(err, errQueueFull) { status, code = http.StatusTooManyRequests, "magpie_queue_full" }
+		if errors.Is(err, errQueueFull) {
+			status, code = http.StatusTooManyRequests, "magpie_queue_full"
+		}
 		writeError(w, status, code, "Magpie upstream account is at its configured concurrency/RPM limit")
 		return
 	}
@@ -358,7 +385,9 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 	}
 	upstream.Header.Set("X-Magpie-Session", sessionFromBody(body, envelope.RequestID))
 	upstream.Header.Set("X-Magpie-Request-ID", envelope.RequestID)
-	if envelope.RequestID != "" { upstream.Header.Set("X-Request-Id", envelope.RequestID) }
+	if envelope.RequestID != "" {
+		upstream.Header.Set("X-Request-Id", envelope.RequestID)
+	}
 	response, err := k.client.Do(upstream)
 	if err != nil {
 		k.logTurn(envelope.RequestID, slotID, slot, 0, "magpie_unavailable", time.Since(started))
@@ -371,8 +400,12 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 			w.Header().Set(name, value)
 		}
 	}
-	if provider := response.Header.Get("X-Magpie-Provider"); provider != "" { w.Header().Set("X-Magpie-Provider", provider) }
-	if servedModel := response.Header.Get("X-Magpie-Model"); servedModel != "" { w.Header().Set("X-Magpie-Model", servedModel) }
+	if provider := response.Header.Get("X-Magpie-Provider"); provider != "" {
+		w.Header().Set("X-Magpie-Provider", provider)
+	}
+	if servedModel := response.Header.Get("X-Magpie-Model"); servedModel != "" {
+		w.Header().Set("X-Magpie-Model", servedModel)
+	}
 	if !envelope.Stream {
 		payload, readErr := io.ReadAll(io.LimitReader(response.Body, maxRequestBytes+1))
 		if readErr != nil || len(payload) > maxRequestBytes {
@@ -400,11 +433,16 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 		n, readErr := response.Body.Read(buf)
 		if n > 0 {
 			idleTimer.Reset(idle)
-			if firstByte { firstByte = false; firstByteTimer.Stop() }
+			if firstByte {
+				firstByte = false
+				firstByteTimer.Stop()
+			}
 			pending = append(pending, buf[:n]...)
 			for {
 				frame, rest, ok := takeSSEFrame(pending)
-				if !ok { break }
+				if !ok {
+					break
+				}
 				pending = rest
 				sawFinish = sawFinish || sseFrameHasFinish(frame)
 				sawError = sawError || sseFrameIsError(frame)
@@ -421,7 +459,9 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 				if ctx.Err() != nil && r.Context().Err() == nil && !sawError {
 					frame := []byte("event: error\ndata: {\"status\":504,\"error\":{\"code\":\"gemini_inference_timeout\",\"message\":\"Magpie stream exceeded first-byte or idle timeout\"}}\n\n")
 					_, _ = w.Write(frame)
-					if canFlush { flusher.Flush() }
+					if canFlush {
+						flusher.Flush()
+					}
 				}
 				k.logTurn(envelope.RequestID, slotID, slot, http.StatusBadGateway, "magpie_stream_read_error", time.Since(started))
 				return
@@ -429,7 +469,9 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 			if !sawFinish && !sawError {
 				frame := []byte("event: error\ndata: {\"status\":502,\"error\":{\"code\":\"gemini_inference_invalid_output\",\"message\":\"Magpie stream ended before finishReason\"}}\n\n")
 				_, _ = w.Write(frame)
-				if canFlush { flusher.Flush() }
+				if canFlush {
+					flusher.Flush()
+				}
 				k.logTurn(envelope.RequestID, slotID, slot, http.StatusBadGateway, "gemini_inference_invalid_output", time.Since(started))
 			} else {
 				k.logTurn(envelope.RequestID, slotID, slot, response.StatusCode, "", time.Since(started))
@@ -449,8 +491,14 @@ func (k *Kernel) logTurn(requestID, slotID string, slot Slot, status int, code s
 }
 
 func responseErrorCode(payload []byte) string {
-	var value struct { Error struct { Code string `json:"code"` } `json:"error"` }
-	if json.Unmarshal(payload, &value) == nil { return value.Error.Code }
+	var value struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(payload, &value) == nil {
+		return value.Error.Code
+	}
 	return ""
 }
 
@@ -458,9 +506,15 @@ var errQueueFull = errors.New("Magpie upstream queue is full")
 
 func (k *Kernel) slotLimiterSettings(slot Slot) limiterSettings {
 	settings := limiterSettings{maxConcurrency: k.config.DefaultMaxConcurrency, maxRPM: k.config.DefaultMaxRPM, queueLimit: k.config.DefaultQueueLimit}
-	if slot.MaxConcurrency > 0 { settings.maxConcurrency = slot.MaxConcurrency }
-	if slot.MaxRPM > 0 { settings.maxRPM = slot.MaxRPM }
-	if slot.QueueLimit > 0 { settings.queueLimit = slot.QueueLimit }
+	if slot.MaxConcurrency > 0 {
+		settings.maxConcurrency = slot.MaxConcurrency
+	}
+	if slot.MaxRPM > 0 {
+		settings.maxRPM = slot.MaxRPM
+	}
+	if slot.QueueLimit > 0 {
+		settings.queueLimit = slot.QueueLimit
+	}
 	return settings
 }
 
@@ -491,12 +545,18 @@ func (k *Kernel) acquireUpstream(ctx context.Context, key string, settings limit
 		defer timer.Stop()
 		select {
 		case limiter.sem <- struct{}{}:
-			limiter.mu.Lock(); limiter.waiters--; limiter.mu.Unlock()
+			limiter.mu.Lock()
+			limiter.waiters--
+			limiter.mu.Unlock()
 		case <-ctx.Done():
-			limiter.mu.Lock(); limiter.waiters--; limiter.mu.Unlock()
+			limiter.mu.Lock()
+			limiter.waiters--
+			limiter.mu.Unlock()
 			return ctx.Err()
 		case <-timer.C:
-			limiter.mu.Lock(); limiter.waiters--; limiter.mu.Unlock()
+			limiter.mu.Lock()
+			limiter.waiters--
+			limiter.mu.Unlock()
 			return context.DeadlineExceeded
 		}
 	}
@@ -506,7 +566,9 @@ func (k *Kernel) acquireUpstream(ctx context.Context, key string, settings limit
 			now := time.Now()
 			cutoff := now.Add(-time.Minute)
 			firstValid := 0
-			for firstValid < len(limiter.requests) && !limiter.requests[firstValid].After(cutoff) { firstValid++ }
+			for firstValid < len(limiter.requests) && !limiter.requests[firstValid].After(cutoff) {
+				firstValid++
+			}
 			limiter.requests = append(limiter.requests[:0], limiter.requests[firstValid:]...)
 			if len(limiter.requests) < settings.maxRPM {
 				limiter.requests = append(limiter.requests, now)
@@ -517,7 +579,10 @@ func (k *Kernel) acquireUpstream(ctx context.Context, key string, settings limit
 			limiter.mu.Unlock()
 			timer := time.NewTimer(wait)
 			select {
-			case <-ctx.Done(): timer.Stop(); k.releaseUpstream(key); return ctx.Err()
+			case <-ctx.Done():
+				timer.Stop()
+				k.releaseUpstream(key)
+				return ctx.Err()
 			case <-timer.C:
 			}
 		}
@@ -526,29 +591,46 @@ func (k *Kernel) acquireUpstream(ctx context.Context, key string, settings limit
 }
 
 func (k *Kernel) releaseUpstream(key string) {
-	k.limiterMu.Lock(); limiter := k.limiters[key]; k.limiterMu.Unlock()
-	if limiter == nil { return }
-	select { case <-limiter.sem: default: }
+	k.limiterMu.Lock()
+	limiter := k.limiters[key]
+	k.limiterMu.Unlock()
+	if limiter == nil {
+		return
+	}
+	select {
+	case <-limiter.sem:
+	default:
+	}
 }
 
 func sessionFromBody(body map[string]json.RawMessage, fallback string) string {
 	for _, key := range []string{"conversation_id", "conversationId"} {
 		var id string
 		if json.Unmarshal(body[key], &id) == nil && strings.TrimSpace(id) != "" {
-			if len(id) > 128 { return id[:128] }
+			if len(id) > 128 {
+				return id[:128]
+			}
 			return id
 		}
 	}
-	if fallback == "" { return "vm2api-magpie-default" }
-	if len(fallback) > 128 { return fallback[:128] }
+	if fallback == "" {
+		return "vm2api-magpie-default"
+	}
+	if len(fallback) > 128 {
+		return fallback[:128]
+	}
 	return fallback
 }
 
 func takeSSEFrame(pending []byte) ([]byte, []byte, bool) {
 	lf := bytes.Index(pending, []byte("\n\n"))
 	crlf := bytes.Index(pending, []byte("\r\n\r\n"))
-	if crlf >= 0 && (lf < 0 || crlf < lf) { return pending[:crlf+4], pending[crlf+4:], true }
-	if lf >= 0 { return pending[:lf+2], pending[lf+2:], true }
+	if crlf >= 0 && (lf < 0 || crlf < lf) {
+		return pending[:crlf+4], pending[crlf+4:], true
+	}
+	if lf >= 0 {
+		return pending[:lf+2], pending[lf+2:], true
+	}
 	return nil, pending, false
 }
 
@@ -558,17 +640,33 @@ func sseFrameHasFinish(frame []byte) bool {
 		line = bytes.TrimSuffix(line, []byte("\r"))
 		if bytes.HasPrefix(line, []byte("data:")) {
 			value := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
-			if bytes.Equal(value, []byte("[DONE]")) { return true }
+			if bytes.Equal(value, []byte("[DONE]")) {
+				return true
+			}
 			payload = append(payload, value...)
 		}
 	}
 	var decoded map[string]json.RawMessage
-	if json.Unmarshal(payload, &decoded) != nil { return false }
+	if json.Unmarshal(payload, &decoded) != nil {
+		return false
+	}
 	var response map[string]json.RawMessage
-	if raw := decoded["response"]; len(raw) > 0 { _ = json.Unmarshal(raw, &response) } else { response = decoded }
-	var candidates []struct { FinishReason string `json:"finishReason"` }
-	if json.Unmarshal(response["candidates"], &candidates) != nil { return false }
-	for _, candidate := range candidates { if candidate.FinishReason != "" && candidate.FinishReason != "FINISH_REASON_UNSPECIFIED" { return true } }
+	if raw := decoded["response"]; len(raw) > 0 {
+		_ = json.Unmarshal(raw, &response)
+	} else {
+		response = decoded
+	}
+	var candidates []struct {
+		FinishReason string `json:"finishReason"`
+	}
+	if json.Unmarshal(response["candidates"], &candidates) != nil {
+		return false
+	}
+	for _, candidate := range candidates {
+		if candidate.FinishReason != "" && candidate.FinishReason != "FINISH_REASON_UNSPECIFIED" {
+			return true
+		}
+	}
 	return false
 }
 

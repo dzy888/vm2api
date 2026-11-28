@@ -780,7 +780,8 @@ AUTH_FAILURE_STAGES = frozenset(
 
 
 class Failure(Exception):
-    def __init__(self, status, code=None, stage=None, reason=None, message=None):
+    def __init__(self, status, code=None, stage=None, reason=None, message=None,
+                 retry_after_ms=None, upstream_reason=None, content_rejected=False):
         self.status = status
         self.code = code
         self.stage = stage if stage in AUTH_FAILURE_STAGES else None
@@ -794,6 +795,9 @@ class Failure(Exception):
             if isinstance(message, str) and message.strip()
             else None
         )
+        self.retry_after_ms = retry_after_ms if type(retry_after_ms) is int and retry_after_ms > 0 else None
+        self.upstream_reason = upstream_reason if isinstance(upstream_reason, str) else None
+        self.content_rejected = content_rejected is True
 
 
 def _read_bounded_text(path, limit=256):
@@ -8946,7 +8950,15 @@ class Host:
         except Failure as error:
             final_state = "cancelled" if cancel_event.is_set() else "failed"
             final_code = error.code or "gemini_inference_failed"
-            handler.send_json_error(error.status, final_code)
+            self._emit_json_error(
+                handler,
+                error.status,
+                final_code,
+                error.message,
+                retry_after_ms=error.retry_after_ms,
+                upstream_reason=error.upstream_reason,
+                content_rejected=error.content_rejected,
+            )
         except (BrokenPipeError, ConnectionResetError):
             final_state = "cancelled"
             final_code = "gemini_inference_cancelled"
@@ -9041,9 +9053,22 @@ class Host:
                 err = payload.get("error") if isinstance(payload, dict) else None
                 code = err.get("code") if isinstance(err, dict) else None
                 message = err.get("message") if isinstance(err, dict) else None
+                retry_after_ms = err.get("retry_after_ms") if isinstance(err, dict) else None
+                upstream_reason = err.get("upstream_reason") if isinstance(err, dict) else None
+                content_rejected = err.get("content_rejected") is True if isinstance(err, dict) else False
+                retry_after = response.getheader("Retry-After")
+                if retry_after_ms is None and retry_after and retry_after.isdigit():
+                    retry_after_ms = min(3_600_000, int(retry_after) * 1000)
                 if not isinstance(code, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", code):
                     code = "magpie_kernel_unavailable" if response.status >= 500 else "gemini_invalid_request"
-                raise Failure(response.status or 502, code, message if isinstance(message, str) else None)
+                raise Failure(
+                    response.status or 502,
+                    code,
+                    message=message if isinstance(message, str) else None,
+                    retry_after_ms=retry_after_ms,
+                    upstream_reason=upstream_reason,
+                    content_rejected=content_rejected,
+                )
             handler.begin_sse()
             while True:
                 chunk = response.read1(65536)
@@ -9634,6 +9659,12 @@ class ControlHandler(BaseHTTPRequestHandler):
                 payload["message"] = error.message
             if error.stage in AUTH_FAILURE_STAGES:
                 payload["stage"] = error.stage
+            if error.retry_after_ms is not None:
+                payload["retry_after_ms"] = error.retry_after_ms
+            if error.upstream_reason:
+                payload["upstream_reason"] = error.upstream_reason
+            if error.content_rejected:
+                payload["content_rejected"] = True
             status = error.status
         except (ValueError, TimeoutError, RecursionError):
             status, payload = 400, {}

@@ -140,6 +140,10 @@ const RUN_ERRORS = {
   magpie_slot_not_configured: [503, '该 Gemini 环境尚未配置 Magpie 后端路由'],
   magpie_backend_not_allowed: [403, '该 Gemini 环境未启用所选 Magpie 后端'],
   magpie_model_invalid: [400, 'Magpie 模型与所选后端不匹配'],
+  magpie_key_not_allowed: [403, '该 Magpie gateway key ID 未在内核配置中启用'],
+  magpie_key_unavailable: [503, '所选 Magpie gateway key 暂不可用'],
+  magpie_queue_full: [429, 'Magpie 等待队列已满，请稍后重试'],
+  magpie_queue_timeout: [504, '等待 Magpie 账号并发或 RPM 配额超时'],
   gemini_native_tty_unavailable: [503, '宿主机没有可用的虚拟终端资源，请检查宿主机状态并重启 vm2api-gemini 服务'],
   gemini_native_worker_unavailable: [
     503,
