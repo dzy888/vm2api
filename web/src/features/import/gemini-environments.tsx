@@ -1306,11 +1306,9 @@ export function GeminiEnvironments({
   const [name, setName] = useState('')
   const [proxyId, setProxyId] = useState('')
   const [authMethod, setAuthMethod] = useState<
-    GeminiEnvironment['auth_method'] | 'oauth_file' | 'oauth_auto'
+    GeminiEnvironment['auth_method'] | 'oauth_file'
   >('oauth')
   const [apiKey, setApiKey] = useState('')
-  const [googleEmail, setGoogleEmail] = useState('')
-  const [appPassword, setAppPassword] = useState('')
   const [accountFile, setAccountFile] = useState<File | null>(null)
   const [accountText, setAccountText] = useState('')
   const [accountImport, setAccountImport] =
@@ -1510,13 +1508,11 @@ export function GeminiEnvironments({
           throw new Error('请选择有效的账号 JSON 文件或粘贴 Refresh Token。')
         }
         const effectiveMethod =
-          authMethod === 'oauth_auto'
-            ? 'oauth'
-            : authMethod === 'oauth_file' && importedAccount
-              ? importedAccount.kind === 'api_key'
-                ? 'api_key'
-                : 'oauth'
-              : authMethod
+          authMethod === 'oauth_file' && importedAccount
+            ? importedAccount.kind === 'api_key'
+              ? 'api_key'
+              : 'oauth'
+            : authMethod
         const effectiveApiKey =
           authMethod === 'oauth_file' && importedAccount?.kind === 'api_key'
             ? importedAccount.api_key
@@ -1527,34 +1523,18 @@ export function GeminiEnvironments({
           authMethod === 'oauth_file' && importedAccount?.kind === 'oauth'
             ? importedAccount.oauth_account
             : null
-        let environment: GeminiEnvironment
-        if (authMethod === 'oauth_auto') {
-          environment = await api<GeminiEnvironment>(
-            `${ROOT}/environments/auto-oauth`,
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                name,
-                proxy_id: proxyId,
-                google_email: googleEmail.trim(),
-                app_password: appPassword.trim(),
-              }),
-            }
-          )
-        } else {
-          environment = await api<GeminiEnvironment>(resource, {
-            method: 'POST',
-            body: JSON.stringify({
-              name,
-              proxy_id: proxyId,
-              auth_method: effectiveMethod,
-              ...(effectiveOAuthAccount
-                ? { oauth_account: effectiveOAuthAccount }
-                : {}),
-              ...(effectiveApiKey ? { api_key: effectiveApiKey } : {}),
-            }),
-          })
-        }
+        const environment = await api<GeminiEnvironment>(resource, {
+          method: 'POST',
+          body: JSON.stringify({
+            name,
+            proxy_id: proxyId,
+            auth_method: effectiveMethod,
+            ...(effectiveOAuthAccount
+              ? { oauth_account: effectiveOAuthAccount }
+              : {}),
+            ...(effectiveApiKey ? { api_key: effectiveApiKey } : {}),
+          }),
+        })
         client.setQueryData<GeminiInventory>(
           QUERY_KEY,
           (current) =>
@@ -1912,19 +1892,6 @@ export function GeminiEnvironments({
                 <input
                   type='radio'
                   name='gemini-auth-method'
-                  checked={authMethod === 'oauth_auto'}
-                  onChange={() => {
-                    setAuthMethod('oauth_auto')
-                    setApiKey('')
-                    resetAccountImport()
-                  }}
-                />
-                账号密码自动授权
-              </label>
-              <label className='flex items-center gap-2'>
-                <input
-                  type='radio'
-                  name='gemini-auth-method'
                   checked={authMethod === 'api_key'}
                   onChange={() => {
                     setAuthMethod('api_key')
@@ -1970,38 +1937,6 @@ export function GeminiEnvironments({
               }}
             />
           </div>
-          {authMethod === 'oauth_auto' ? (
-            <div className='space-y-2'>
-              <div className='space-y-1.5'>
-                <Label htmlFor='gemini-google-email'>Google 邮箱</Label>
-                <Input
-                  id='gemini-google-email'
-                  type='email'
-                  required
-                  autoComplete='username'
-                  value={googleEmail}
-                  onChange={(event) => setGoogleEmail(event.target.value)}
-                />
-              </div>
-              <div className='space-y-1.5'>
-                <Label htmlFor='gemini-google-app-password'>
-                  Google 应用专用密码
-                </Label>
-                <Input
-                  id='gemini-google-app-password'
-                  required
-                  autoComplete='off'
-                  placeholder='16 位应用专用密码'
-                  value={appPassword}
-                  onChange={(event) => setAppPassword(event.target.value)}
-                />
-              </div>
-              <p className='text-xs text-muted-foreground'>
-                纯 HTTP 经绑定代理登录 Google（gpsoauth），无需浏览器和验证码；
-                请在 Google 账号安全设置中生成 16 位应用专用密码。
-              </p>
-            </div>
-          ) : null}
           {authMethod === 'oauth_file' ? (
             <div className='space-y-2'>
               <Label htmlFor='gemini-account-file'>

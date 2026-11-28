@@ -30,7 +30,6 @@ import {
   resolveGeminiReasoningEffort,
   sessionIdForLog,
 } from '../protocol/log-fields.mjs'
-import { gpsoauthLogin } from './auto-oauth.mjs'
 import { installGeminiPayload, readPinnedCragGeminiPublicKeySha256 } from './payload.mjs'
 import { effectivePayloadMode, isSelfKernel } from './self-kernel.mjs'
 import { createGeminiTerminalBridge } from './terminal.mjs'
@@ -256,13 +255,6 @@ const HOST_ERRORS = {
   gemini_terminal_requires_oauth: [409, 'Antigravity CLI 需要有效的 Google OAuth 凭据，请重新授权后再启动'],
   gemini_terminal_limit: [429, '终端会话或连接票据已达上限，请关闭现有终端或稍后重试'],
   gemini_oauth_import_invalid: [400, 'Google 账号文件中的凭据格式无效'],
-  gemini_auto_oauth_bad_input: [400, '账号、密码或 2FA 参数无效'],
-  gemini_auto_oauth_password_rejected: [400, 'Google 拒绝应用专用密码，请检查账号与应用专用密码'],
-  gemini_auto_oauth_proxy_invalid: [400, '绑定代理地址无效'],
-  gemini_auto_oauth_proxy_timeout: [504, '通过代理连接 Google 超时'],
-  gemini_auto_oauth_proxy_error: [502, '通过代理连接 Google 失败'],
-  gemini_auto_oauth_exchange_failed: [502, 'Google 拒绝换取刷新令牌'],
-  gemini_auto_oauth_failed: [502, '自动登录失败'],
   gemini_oauth_import_rejected: [400, 'Google 凭据已过期或未获授权，请导出新文件或进行 Google 授权'],
   gemini_oauth_client_not_configured: [
     503,
@@ -1606,103 +1598,7 @@ export function createGeminiPanelHandler({
         geminiScheduler?.invalidateCatalogCache?.()
         return ok({ kernel_version: result.kernel_version })
       }
-      if (req.method === 'POST' && pathname === `${PANEL_PATH}/environments/auto-oauth`) {
-        const body = await readBody(req, 8 * 1024)
-        const name = typeof body?.name === 'string' ? body.name.trim() : ''
-        const email = typeof body?.google_email === 'string' ? body.google_email.trim() : ''
-        const appPassword = typeof body?.app_password === 'string' ? body.app_password.trim() : ''
-        if (!name || name.length > 80 || !validId(body?.proxy_id) || !email.includes('@') || !appPassword)
-          return fail(400, 'gemini_auto_oauth_bad_input')
-        const hasConcurrency = body?.max_concurrency !== undefined
-        const maxConcurrency = hasConcurrency ? parseConcurrency(body.max_concurrency) : null
-        if (hasConcurrency && maxConcurrency == null)
-          return fail(400, 'gemini_invalid_concurrency', HOST_ERRORS.gemini_invalid_concurrency[1])
-        const ownerUserId = normalizeOwnerId(body?.owner_user_id)
-        const proxyUrl = proxyFor(proxyPool(), body.proxy_id, { ownerUserId, forBinding: true })
-        try {
-          const token = await gpsoauthLogin({ email, appPassword, proxyUrl })
-          let created = await callHost('create', {
-            name,
-            proxy_id: body.proxy_id,
-            proxy_url: proxyUrl,
-            oauth_account: {
-              access_token: token.access_token,
-              expiry_timestamp: token.expiry_timestamp,
-            },
-            ...(maxConcurrency != null ? { max_concurrency: maxConcurrency } : {}),
-          })
-          if (ownerUserId && geminiOwnersRepo?.setOwner) geminiOwnersRepo.setOwner(created.id, ownerUserId)
-          if (cragSubscription?.ensureEnvironmentSeat) {
-            const seat = await cragSubscription
-              .ensureEnvironmentSeat(created.id, { env: created, payloadMode: seatPayloadMode })
-              .catch(() => ({ bound: false }))
-            if (seat.bound) created = await callHost('get', { id: created.id })
-          }
-          geminiScheduler?.invalidateCatalogCache?.()
-          return ok(toEnvView(created, { ownerUserId }))
-        } catch (error) {
-          const code =
-            typeof error?.code === 'string' && /^[a-z][a-z0-9_]+$/.test(error.code)
-              ? error.code
-              : 'gemini_auto_oauth_failed'
-          return fail(HOST_ERRORS[code]?.[0] || 502, code, error?.message)
-        }
-      }
-      if (req.method === 'POST' && pathname === `${PANEL_PATH}/kernel-self/install`) {
-        try {
-          const version = await installSelfKernel(projectRoot)
-          writeKernelMode(projectRoot, 'self')
-          geminiScheduler?.invalidateCatalogCache?.()
-          return ok({ version, kernel_mode: 'self' })
-        } catch (error) {
-          const code =
-            typeof error?.code === 'string' && /^[a-z][a-z0-9_]+$/.test(error.code)
-              ? error.code
-              : 'gemini_self_install_failed'
-          return fail(400, code, error?.message)
-        }
-      }
-      if (pathname === `${PANEL_PATH}/kernel-mode`) {
-        if (req.method === 'GET') return ok({ mode: readKernelMode(projectRoot) })
-        if (req.method === 'POST') {
-          const body = await readBody(req, 1024)
-          const mode = body?.mode === 'self' ? 'self' : body?.mode === 'official' ? 'official' : null
-          if (!mode) return fail(400, 'gemini_kernel_mode_invalid', 'mode 必须是 self 或 official')
-          try {
-            if (mode === 'self') {
-              const version = await installSelfKernel(projectRoot)
-              writeKernelMode(projectRoot, 'self')
-              geminiScheduler?.invalidateCatalogCache?.()
-              await callHost('daemon-action', { action: 'rebalance' }).catch(() => null)
-              return ok({ mode, version })
-            }
-            // 官方：宿主只在 current 缺失时才落盘签名载荷，先把自研包移开。
-            const currentDir = path.join(projectRoot, 'share', 'gemini', 'current')
-            const backup = `${currentDir}.mode-${Date.now()}`
-            const moved = fs.existsSync(currentDir)
-            if (moved) fs.renameSync(currentDir, backup)
-            let result
-            try {
-              result = await callHost('install-payload', {})
-            } catch (error) {
-              if (moved && !fs.existsSync(currentDir)) fs.renameSync(backup, currentDir)
-              throw error
-            }
-            if (moved) fs.rmSync(backup, { recursive: true, force: true })
-            writeKernelMode(projectRoot, 'official')
-            geminiScheduler?.invalidateCatalogCache?.()
-            await callHost('daemon-action', { action: 'rebalance' }).catch(() => null)
-            return ok({ mode, version: result?.version })
-          } catch (error) {
-            const code =
-              typeof error?.code === 'string' && /^[a-z][a-z0-9_]+$/.test(error.code)
-                ? error.code
-                : 'gemini_kernel_mode_failed'
-            return fail(400, code, error?.message)
-          }
-        }
-        return fail(405, 'method_not_allowed', 'method_not_allowed')
-      }
+
       if (req.method === 'POST' && pathname === `${PANEL_PATH}/environments`) {
         const body = await readBody(req, 64 * 1024)
         const name = typeof body?.name === 'string' ? body.name.trim() : ''
