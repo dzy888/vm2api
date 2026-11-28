@@ -108,6 +108,11 @@ const FAILURES = {
     'The outbound session cannot continue after appended input while a tool turn is still suspended.',
   ],
   gemini_inference_failed: [502, 'The Gemini turn failed.'],
+  magpie_kernel_unavailable: [503, 'The Magpie kernel socket or internal token is unavailable.'],
+  magpie_unavailable: [503, 'The Magpie gateway is unavailable.'],
+  magpie_slot_not_configured: [503, 'This Gemini slot has no Magpie backend route configured.'],
+  magpie_backend_not_allowed: [403, 'This Magpie backend is not enabled for the selected Gemini slot.'],
+  magpie_model_invalid: [400, 'The selected Magpie model does not match the slot backend.'],
   gemini_unsupported_turn: [
     400,
     'The selected Gemini environment does not support the requested tools, history, parameters, or media.',
@@ -1032,6 +1037,8 @@ export function createGeminiScheduler({
             proxy_id: environment.proxy_id,
             auth_method: authMethod,
             schedule_level: pref?.schedule_level ?? 5,
+            inference_backend: pref?.inference_backend || 'native',
+            ...(pref?.magpie_model ? { magpie_model: pref.magpie_model } : {}),
             max_concurrency: normalizeConcurrency(
               environment.max_concurrency,
               currentPolicy().pool.max_concurrency_per_account,
@@ -1442,7 +1449,11 @@ export function createGeminiScheduler({
                     }
                   : undefined
               const turnTimeoutMs = Math.max(STREAM_TURN_MS, (policy.pool.timeout_ms || 120_000) + 15_000)
-              if (target === 'antigravity' && effectiveDirectClient) {
+              if (
+                target === 'antigravity' &&
+                (account.inference_backend || 'native') === 'native' &&
+                effectiveDirectClient
+              ) {
                 const directTarget = await effectiveDirectClient.resolveTarget({
                   id,
                   proxyId,
@@ -1493,6 +1504,12 @@ export function createGeminiScheduler({
                     ...(egressOptions ? { egress_options: egressOptions } : {}),
                     model: resolved.upstreamModel,
                     request_id: attemptRequestId,
+                    ...(account.inference_backend && account.inference_backend !== 'native'
+                      ? {
+                          magpie_backend: account.inference_backend,
+                          magpie_model: account.magpie_model,
+                        }
+                      : {}),
                     ...(gatewayPolicy ? { gateway_policy: gatewayPolicy } : {}),
                     ...(isRestartResumeRetry ? { restart_resume: true } : {}),
                     body: outboundBody,

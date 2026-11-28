@@ -14,6 +14,8 @@ export const GEMINI_SLOT_PREFS_KEY = 'gemini_slot_prefs'
 export const DEFAULT_GEMINI_SCHEDULE_LEVEL = 5
 
 const UNSCHEDULABLE_REASON_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/
+const INFERENCE_BACKENDS = new Set(['native', 'agy-cli', 'claude'])
+const MAGPIE_MODEL_RE = /^(agy-cli|claude)\/[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/
 
 export function parseGeminiScheduleLevel(value) {
   if (value === null || value === '' || value === 'auto') return { ok: true, value: null }
@@ -56,6 +58,14 @@ function sanitizeEntry(raw) {
   if (lvl.ok && lvl.value != null) out.schedule_level = lvl.value
   const name = parseGeminiDisplayName(raw.display_name)
   if (name.ok && name.value != null) out.display_name = name.value
+  const backend = INFERENCE_BACKENDS.has(raw.inference_backend) ? raw.inference_backend : 'native'
+  if (backend !== 'native' && typeof raw.magpie_model === 'string') {
+    const model = raw.magpie_model.trim()
+    if (MAGPIE_MODEL_RE.test(model) && model.startsWith(`${backend}/`)) {
+      out.inference_backend = backend
+      out.magpie_model = model
+    }
+  }
   const unsched = sanitizeUnschedulable(raw.unschedulable)
   if (unsched) out.unschedulable = unsched
   return out
@@ -83,12 +93,22 @@ export function createGeminiSlotPrefs({ settingsRepo = null, now = () => Date.no
   }
 
   function get(envId) {
-    if (!envId) return { schedulable: true, schedule_level: null, display_name: null, unschedulable: null }
+    if (!envId)
+      return {
+        schedulable: true,
+        schedule_level: null,
+        display_name: null,
+        inference_backend: 'native',
+        magpie_model: null,
+        unschedulable: null,
+      }
     const raw = sanitizeEntry(readAll()[envId])
     return {
       schedulable: raw.schedulable !== false,
       schedule_level: raw.schedule_level ?? null,
       display_name: raw.display_name ?? null,
+      inference_backend: raw.inference_backend ?? 'native',
+      magpie_model: raw.magpie_model ?? null,
       unschedulable: raw.unschedulable ?? null,
     }
   }
@@ -100,6 +120,8 @@ export function createGeminiSlotPrefs({ settingsRepo = null, now = () => Date.no
       schedule_level: raw.schedule_level ?? DEFAULT_GEMINI_SCHEDULE_LEVEL,
       schedule_level_mode: raw.schedule_level != null ? 'manual' : 'auto',
       display_name: raw.display_name,
+      inference_backend: raw.inference_backend,
+      magpie_model: raw.magpie_model,
       unschedulable: raw.unschedulable,
       unschedulable_reason: raw.unschedulable?.reason ?? null,
       unschedulable_detail: raw.unschedulable?.detail ?? null,
@@ -153,6 +175,32 @@ export function createGeminiSlotPrefs({ settingsRepo = null, now = () => Date.no
       }
       if (parsed.value != null) current.display_name = parsed.value
       else delete current.display_name
+    }
+    if (Object.hasOwn(update, 'inference_backend') || Object.hasOwn(update, 'magpie_model')) {
+      const backend = Object.hasOwn(update, 'inference_backend')
+        ? update.inference_backend
+        : current.inference_backend || 'native'
+      if (!INFERENCE_BACKENDS.has(backend)) {
+        const err = new Error('推理后端必须是 native、agy-cli 或 claude')
+        err.code = 'gemini_invalid_inference_backend'
+        err.status = 400
+        throw err
+      }
+      if (backend === 'native') {
+        delete current.inference_backend
+        delete current.magpie_model
+      } else {
+        const model = Object.hasOwn(update, 'magpie_model') ? update.magpie_model : current.magpie_model
+        const normalized = typeof model === 'string' ? model.trim() : ''
+        if (normalized.length > 140 || !MAGPIE_MODEL_RE.test(normalized) || !normalized.startsWith(`${backend}/`)) {
+          const err = new Error(`Magpie 模型必须使用 ${backend}/<model> 格式`)
+          err.code = 'gemini_invalid_magpie_model'
+          err.status = 400
+          throw err
+        }
+        current.inference_backend = backend
+        current.magpie_model = normalized
+      }
     }
     if (Object.keys(current).length > 0) store[envId] = current
     else delete store[envId]

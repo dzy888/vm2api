@@ -1,0 +1,33 @@
+services:
+  magpie:
+    image: ghcr.io/yetone/magpie:stable
+    restart: unless-stopped
+    environment:
+      HOME: /config/home
+      XDG_CONFIG_HOME: /config
+      XDG_CACHE_HOME: /config/cache
+      XDG_DATA_HOME: /config/data
+      XDG_STATE_HOME: /config/state
+      MAGPIE_ADDR: 0.0.0.0:3425
+      MAGPIE_WEB_KEY: ${MAGPIE_WEB_KEY:?set MAGPIE_WEB_KEY}
+    ports:
+      - "127.0.0.1:3425:3425"
+      - "127.0.0.1:3430:3430"
+    volumes:
+      - magpie-config:/config
+    command: ["web", "--addr", "0.0.0.0:3430", "--no-open"]
+
+  kernel:
+    build: .
+    restart: unless-stopped
+    command: ["-config", "/etc/vm2api-magpie/kernel.json"]
+    volumes:
+      - ./config.json:/etc/vm2api-magpie/kernel.json:ro
+      - ./secrets/internal-token:/run/secrets/internal-token:ro
+      - ./secrets/gateway-key:/run/secrets/gateway-key:ro
+      - ./run:/run/vm2api-magpie
+    depends_on:
+      - magpie
+
+volumes:
+  magpie-config:

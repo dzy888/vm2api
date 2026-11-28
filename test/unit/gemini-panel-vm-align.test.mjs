@@ -286,6 +286,8 @@ test('Gemini panel supports schedulable, prefs, recover, and owner with schedule
     name: '主力 Gemini',
     schedule_level: 9,
     max_concurrency: 24,
+    inference_backend: 'claude',
+    magpie_model: 'claude/claude-sonnet-5-5',
   })
   assert.equal(prefsRes.status, 200)
   assert.equal(prefsRes.body.data.name, '主力 Gemini')
@@ -293,7 +295,17 @@ test('Gemini panel supports schedulable, prefs, recover, and owner with schedule
   assert.equal(prefsRes.body.data.schedule_level_mode, 'manual')
   assert.equal(prefsRes.body.data.max_concurrency, 24)
   assert.equal((await geminiScheduler.catalog()).accounts[0].schedule_level, 9)
+  assert.equal(prefsRes.body.data.inference_backend, 'claude')
+  assert.equal(prefsRes.body.data.magpie_model, 'claude/claude-sonnet-5-5')
+  assert.equal((await geminiScheduler.catalog()).accounts[0].inference_backend, 'claude')
+  assert.equal((await geminiScheduler.catalog()).accounts[0].magpie_model, 'claude/claude-sonnet-5-5')
   assert.ok(hostOps.some((x) => x.op === 'concurrency-set' && x.payload.max_concurrency === 24))
+
+  const invalidMagpieModel = await call('PATCH', '/api/panel/gemini/environments/gem-01/prefs', {
+    inference_backend: 'claude',
+    magpie_model: 'agy-cli/gemini-4-flash',
+  })
+  assert.equal(invalidMagpieModel.status, 400)
 
   // Invalid schedule level rejected with 400.
   const badLvl = await call('PATCH', '/api/panel/gemini/environments/gem-01/prefs', { schedule_level: 99 })

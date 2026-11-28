@@ -75,6 +75,8 @@ TERMINAL_INPUT = 1024
 ATTEMPT = re.compile(r"[a-f0-9]{32}\Z")
 TOKEN_NAME = "antigravity-oauth-token"
 ACCESS_TOKEN = re.compile(r"[A-Za-z0-9._~+/-]{1,4096}={0,2}\Z")
+MAGPIE_BACKENDS = frozenset({"agy-cli", "claude"})
+MAGPIE_MODEL = re.compile(r"(agy-cli|claude)/[A-Za-z0-9][A-Za-z0-9._/-]{0,127}\Z")
 CLI_SETTINGS = {"toolPermission": "strict", "useG1Credits": False}
 NATIVE_CLI_SETTINGS = {
     "allowNonWorkspaceAccess": True,
@@ -3742,6 +3744,77 @@ class ResidentTestChatRun:
                 self._invocation = None
 
 
+class MagpieTestChatRun:
+    """Asynchronous panel test turn using the selected Magpie slot route."""
+
+    def __init__(self, host, env, model, prompt, backend, magpie_model):
+        self.host = host
+        self.model = model
+        self._lock = threading.Lock()
+        self._frames = bytearray()
+        self._result = {"state": "running", "text": ""}
+        self._ctx = {
+            "identifier": env["id"],
+            "request_id": "test-" + secrets.token_hex(12),
+            "infer_body": {
+                "model": model,
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            },
+            "magpie_backend": backend,
+            "magpie_model": magpie_model,
+            "entry": {},
+        }
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def begin_sse(self):
+        return None
+
+    def write_sse_chunk(self, chunk):
+        with self._lock:
+            self._frames.extend(chunk)
+
+    def _run(self):
+        try:
+            state, error = self.host._stream_magpie_kernel(self._ctx, self)
+            if state != "completed":
+                raise Failure(502, error or "gemini_inference_failed")
+            raw_frames = bytes(self._frames)
+            frames = []
+            pending = bytearray()
+            for chunk in (raw_frames,):
+                pending.extend(chunk)
+                while True:
+                    boundary = pending.find(b"\n\n")
+                    cr_boundary = pending.find(b"\r\n\r\n")
+                    if cr_boundary >= 0 and (boundary < 0 or cr_boundary < boundary):
+                        boundary, width = cr_boundary, 4
+                    elif boundary >= 0:
+                        width = 2
+                    else:
+                        break
+                    frames.append(bytes(pending[: boundary + width]))
+                    del pending[: boundary + width]
+            if pending:
+                raise Failure(502, "gemini_inference_invalid_output")
+            result = native_module().parse_sse(frames)
+        except Failure as error:
+            result = {"state": "failed", "text": "", "error": {"code": error.code or "gemini_inference_failed"}}
+        except (OSError, ValueError, native_module().NativeFailure):
+            result = {"state": "failed", "text": "", "error": {"code": "gemini_inference_failed"}}
+        with self._lock:
+            self._result = result
+
+    def poll(self):
+        with self._lock:
+            return dict(self._result)
+
+    def close(self):
+        cancel = self._ctx["entry"].get("cancel_fn")
+        if callable(cancel):
+            cancel()
+
+
 class Login(Agy):
     def __init__(self, host, environment, proxy_url, *, egress_options=None):
         self.deadline = time.monotonic() + AUTH_TTL
@@ -4128,6 +4201,8 @@ class Host:
         self.payload_issue = None
         self.crag_host_dir = getattr(args, "crag_host_dir", None)
         self.socket_path = getattr(args, "socket", None)
+        self.magpie_kernel_socket = os.environ.get("KIN_MAGPIE_KERNEL_SOCK", "")
+        self.magpie_kernel_token_file = os.environ.get("KIN_MAGPIE_KERNEL_TOKEN_FILE", "")
         self.gateway_group = getattr(args, "gateway_group", None)
         self.gateway_gid = None
         if isinstance(self.gateway_group, str) and self.gateway_group:
@@ -6677,7 +6752,20 @@ class Host:
             hashlib.sha256(proxy_url.encode()).hexdigest(),
         )
         try:
-            if key:
+            magpie_backend = body.get("magpie_backend")
+            magpie_model = body.get("magpie_model")
+            if magpie_backend is not None:
+                if (
+                    magpie_backend not in MAGPIE_BACKENDS
+                    or not isinstance(magpie_model, str)
+                    or not MAGPIE_MODEL.fullmatch(magpie_model)
+                    or not magpie_model.startswith(magpie_backend + "/")
+                    or not self.magpie_kernel_socket
+                    or not self.magpie_kernel_token_file
+                ):
+                    raise Failure(503, "magpie_kernel_unavailable")
+                process = MagpieTestChatRun(self, env, model, prompt, magpie_backend, magpie_model)
+            elif key:
                 process = invocation_module().Invocation(
                     account_command(uid, "api-key-chat"),
                     SYSTEM_ENV,
@@ -8716,6 +8804,18 @@ class Host:
         model = body.get("model")
         request_id = body.get("request_id")
         infer_body = body.get("body")
+        magpie_backend = body.get("magpie_backend")
+        magpie_model = body.get("magpie_model")
+        if magpie_backend is not None:
+            if (
+                magpie_backend not in MAGPIE_BACKENDS
+                or not isinstance(magpie_model, str)
+                or not MAGPIE_MODEL.fullmatch(magpie_model)
+                or not magpie_model.startswith(magpie_backend + "/")
+                or not self.magpie_kernel_socket
+                or not self.magpie_kernel_token_file
+            ):
+                raise Failure(503, "magpie_kernel_unavailable")
         if (
             not isinstance(model, str)
             or not MODEL.fullmatch(model)
@@ -8745,13 +8845,15 @@ class Host:
         if model not in env.get("call_models", []):
             raise Failure(409, "gemini_model_unavailable")
         native_body = None
-        if not key:
+        if not key and magpie_backend is None:
             native_body = self._extract_native_turn_body(model, infer_body)
             if native_body is None:
                 raise Failure(400, "gemini_unsupported_turn")
         evidence = {
             "state": "running",
             "model": model,
+            "magpie_backend": magpie_backend,
+            "magpie_model": magpie_model,
             "started_at": now(),
             "finished_at": None,
             "error_code": None,
@@ -8799,7 +8901,9 @@ class Host:
         final_state = "failed"
         final_code = "gemini_inference_failed"
         try:
-            if ctx["key"]:
+            if ctx["magpie_backend"] is not None:
+                final_state, final_code = self._stream_magpie_kernel(ctx, handler)
+            elif ctx["key"]:
                 final_state, final_code = self._stream_api_key_infer(ctx, handler)
             else:
                 final_state, final_code = self._stream_native_infer(ctx, handler)
@@ -8811,6 +8915,10 @@ class Host:
             final_state = "cancelled"
             final_code = "gemini_inference_cancelled"
         except (OSError, subprocess.SubprocessError, ValueError):
+            if cancel_event.is_set():
+                final_state = "cancelled"
+                final_code = "gemini_inference_cancelled"
+                return
             final_state = "failed"
             final_code = "gemini_inference_failed"
             handler.send_json_error(502, final_code)
@@ -8832,6 +8940,81 @@ class Host:
                     self._clear_eligibility_verified_on_failure_locked(
                         identifier, final_code
                     )
+
+    @staticmethod
+    def _read_magpie_kernel_token(path):
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            info = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != 0
+                or info.st_nlink != 1
+                or info.st_mode & 0o007
+                or not 24 <= info.st_size <= 4096
+            ):
+                raise Failure(503, "magpie_kernel_unavailable")
+            token = os.read(descriptor, 4097).decode("ascii").strip()
+            if not re.fullmatch(r"[!-~]{24,4096}", token):
+                raise Failure(503, "magpie_kernel_unavailable")
+            return token
+        finally:
+            os.close(descriptor)
+
+    def _stream_magpie_kernel(self, ctx, handler):
+        native_mod = native_module()
+        token = self._read_magpie_kernel_token(self.magpie_kernel_token_file)
+        request_body = json.dumps(
+            {
+                "request_id": ctx["request_id"],
+                "stream": True,
+                "body": ctx["infer_body"],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        identifier = ctx["identifier"]
+        if not ID.fullmatch(identifier):
+            raise Failure(400, "gemini_invalid_request")
+        connection = native_mod._UnixHTTPConnection(self.magpie_kernel_socket, 300.0)
+        ctx["entry"]["cancel_fn"] = connection.close
+        try:
+            response = connection.request(
+                "POST",
+                f"/internal/v1/accounts/{identifier}/messages",
+                {
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(request_body)),
+                    "X-Kin-Internal-Token": token,
+                    "X-Craggemini-Account": identifier,
+                    "X-Magpie-Backend": ctx["magpie_backend"],
+                    "X-Magpie-Model": ctx["magpie_model"],
+                },
+                request_body,
+            )
+            response.begin()
+            content_type = response.getheader("Content-Type", "").split(";", 1)[0].strip().lower()
+            if response.status != 200 or content_type != "text/event-stream":
+                raw = response.read(64 * 1024)
+                try:
+                    payload = json.loads(raw) if raw else {}
+                except (ValueError, RecursionError):
+                    payload = {}
+                err = payload.get("error") if isinstance(payload, dict) else None
+                code = err.get("code") if isinstance(err, dict) else None
+                message = err.get("message") if isinstance(err, dict) else None
+                if not isinstance(code, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", code):
+                    code = "magpie_kernel_unavailable" if response.status >= 500 else "gemini_invalid_request"
+                raise Failure(response.status or 502, code, message if isinstance(message, str) else None)
+            handler.begin_sse()
+            while True:
+                chunk = response.read1(65536)
+                if not chunk:
+                    break
+                handler.write_sse_chunk(chunk)
+            return "completed", None
+        finally:
+            connection.close()
 
     @staticmethod
     def _parse_google_duration_ms(raw):

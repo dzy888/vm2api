@@ -1,0 +1,23 @@
+{
+  "socket": "/run/vm2api-magpie/kernel.sock",
+  "internal_token_file": "/run/secrets/internal-token",
+  "magpie_base_url": "http://magpie:3425",
+  "magpie_api_key_file": "/run/secrets/gateway-key",
+  "request_timeout_seconds": 300,
+  "allow_dynamic_slots": true,
+  "default_allowed_backends": ["agy-cli", "claude"],
+  "slots": {
+    "slot-agy": {
+      "backend": "agy-cli",
+      "model": "agy-cli/gemini-4-flash",
+      "allowed_backends": ["agy-cli", "claude"],
+      "magpie_account": ""
+    },
+    "slot-claude": {
+      "backend": "claude",
+      "model": "claude/claude-sonnet-5-5",
+      "allowed_backends": ["agy-cli", "claude"],
+      "magpie_account": ""
+    }
+  }
+}
