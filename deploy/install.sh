@@ -790,6 +790,9 @@ raise SystemExit(0 if d.get("ok") and failed == 0 else 1)'
 }
 
 RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}"
+# 镜像安装从 raw 取宿主文件；若 fork 上没有对应的 vX.Y.Z 标签（例如自制镜像
+# 直接从提交构建），可设 VM2API_RAW_REF=<commit|branch> 指定可用引用。
+RAW_REF_OVERRIDE="${VM2API_RAW_REF:-}"
 
 # 有 .git 就是源码安装（本机构建），否则是镜像安装（只拉预构建镜像）。
 install_mode() {
@@ -800,17 +803,29 @@ install_mode() {
   fi
 }
 
+raw_refs_for() {
+  local tag="$1"
+  local -a refs=()
+  [ -n "$RAW_REF_OVERRIDE" ] && refs+=("$RAW_REF_OVERRIDE")
+  refs+=("$tag")
+  if [ "$tag" != main ]; then refs+=("main"); fi
+  printf '%s\n' "${refs[@]}"
+}
+
 fetch_file() {
-  local tag="$1" rel="$2" dest="$3" optional="${4:-0}"
-  if curl -fsSL --connect-timeout 10 --max-time 60 "${RAW_BASE}/${tag}/${rel}" -o "${dest}.new"; then
-    mv -f "${dest}.new" "$dest"
-    return 0
-  fi
-  rm -f "${dest}.new"
+  local tag="$1" rel="$2" dest="$3" optional="${4:-0}" ref
+  while IFS= read -r ref; do
+    if curl -fsSL --connect-timeout 10 --max-time 60 "${RAW_BASE}/${ref}/${rel}" -o "${dest}.new"; then
+      [ "$ref" != "$tag" ] && warn "标签 ${tag} 不存在，已改用引用 ${ref} 获取 ${rel}"
+      mv -f "${dest}.new" "$dest"
+      return 0
+    fi
+    rm -f "${dest}.new"
+  done < <(raw_refs_for "$tag")
   if [ "$optional" = 1 ]; then
     return 0
   fi
-  err "下载失败: ${RAW_BASE}/${tag}/${rel}"
+  err "下载失败: ${RAW_BASE}/${tag}/${rel}（可设 VM2API_RAW_REF 指定可用引用）"
   exit 1
 }
 
@@ -847,13 +862,17 @@ fetch_gemini_host_file() {
     [ -e "${INSTALL_DIR}/${file}" ] || return 44
     cp -- "${INSTALL_DIR}/${file}" "$dest"
   else
-    status="$(curl -sSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 -w '%{http_code}' \
-      "${RAW_BASE}/${tag}/${file}" -o "$dest")" || return 1
-    case "$status" in
-      200) return 0 ;;
-      404) return 44 ;;
-      *) err "Gemini 部署文件 ${file} 下载失败（HTTP ${status}）"; return 1 ;;
-    esac
+    local ref
+    while IFS= read -r ref; do
+      status="$(curl -sSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 -w '%{http_code}' \
+        "${RAW_BASE}/${ref}/${file}" -o "$dest")" || return 1
+      case "$status" in
+        200) return 0 ;;
+        404) continue ;;
+        *) err "Gemini 部署文件 ${file} 下载失败（HTTP ${status}）"; return 1 ;;
+      esac
+    done < <(raw_refs_for "$tag")
+    return 44
   fi
 }
 
