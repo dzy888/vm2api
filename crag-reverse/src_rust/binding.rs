@@ -19,6 +19,8 @@ pub struct AccountBindingConfig {
     pub account_id: String,
     pub env_id: String,
     pub run_dir: PathBuf,
+    #[serde(default)]
+    pub work_dir: PathBuf,
     pub agy_home: PathBuf,
     pub proxy_id: String,
     pub proxy_url: String,
@@ -68,6 +70,7 @@ impl AccountBindingConfig {
             account_id: account.clone(),
             env_id: account.clone(),
             run_dir: std::path::Path::new(&config.run_dir).join("account"),
+            work_dir: std::path::Path::new(&config.run_dir).join("account"),
             agy_home: std::path::Path::new(&config.run_dir).join("home"),
             proxy_id: String::new(),
             proxy_url: String::new(),
@@ -104,6 +107,10 @@ impl AccountBindingConfig {
         }
         if !entry.run_dir.is_empty() {
             binding.run_dir = PathBuf::from(&entry.run_dir);
+            binding.work_dir = PathBuf::from(&entry.run_dir);
+        }
+        if !entry.work_dir.is_empty() {
+            binding.work_dir = PathBuf::from(&entry.work_dir);
         }
         if !entry.proxy_id.is_empty() {
             binding.proxy_id = entry.proxy_id.clone();
@@ -146,6 +153,7 @@ impl Default for AccountBindingConfig {
             account_id: String::new(),
             env_id: String::new(),
             run_dir: PathBuf::new(),
+            work_dir: PathBuf::new(),
             agy_home: PathBuf::new(),
             proxy_id: String::new(),
             proxy_url: String::new(),

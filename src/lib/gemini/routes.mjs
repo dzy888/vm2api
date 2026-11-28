@@ -32,6 +32,7 @@ import {
 } from '../protocol/log-fields.mjs'
 import { gpsoauthLogin } from './auto-oauth.mjs'
 import { installGeminiPayload, readPinnedCragGeminiPublicKeySha256 } from './payload.mjs'
+import { effectivePayloadMode, isSelfKernel } from './self-kernel.mjs'
 import { createGeminiTerminalBridge } from './terminal.mjs'
 import { createGeminiMaintenanceHandler } from './maintenance.mjs'
 import { ANTIGRAVITY_PROVIDERS, ANTIGRAVITY_QUOTA_GROUPS, isAntigravityRoutedModel } from './model-catalog.mjs'
@@ -1023,7 +1024,12 @@ export const callGeminiHostStream = (operation, payload, options) =>
  * for all authorized, licensed OAuth environments so inference starts hot and recovers
  * automatically after control-plane or gemini-host restarts.
  */
-export async function warmGeminiEnvironments({ callHost = callGeminiHost, proxyPool, environmentIds = null } = {}) {
+export async function warmGeminiEnvironments({
+  callHost = callGeminiHost,
+  proxyPool,
+  environmentIds = null,
+  projectRoot = null,
+} = {}) {
   const report = { warmed: 0, warming: 0, skipped: 0 }
   let view
   try {
@@ -1034,7 +1040,7 @@ export async function warmGeminiEnvironments({ callHost = callGeminiHost, proxyP
   if (!Array.isArray(view?.environments) || view.payload_state !== 'installed' || view.oauth_runtime_issue) {
     return report
   }
-  const cragMode = view.payload_mode === 'crag_subscription'
+  const cragMode = effectivePayloadMode(view, projectRoot) === 'crag_subscription'
   const filter = Array.isArray(environmentIds) && environmentIds.length ? new Set(environmentIds) : null
   const pool = typeof proxyPool === 'function' ? proxyPool() : proxyPool
   if (!pool) return report
@@ -1398,9 +1404,12 @@ export function createGeminiPanelHandler({
         }
         let view = await callHost('list', {})
         if (!Array.isArray(view?.environments)) throw hostError(PROTOCOL_ERROR)
-        if (cragSubscription?.reconcileEnvironmentSeats && view.payload_mode === 'crag_subscription') {
+        // A self kernel carries the official package format but must not take a
+        // CRAG seat, so the effective mode decides whether seats are reconciled.
+        const payloadMode = effectivePayloadMode(view, projectRoot)
+        if (cragSubscription?.reconcileEnvironmentSeats && payloadMode === 'crag_subscription') {
           const reconciled = await cragSubscription
-            .reconcileEnvironmentSeats(view.environments, { payloadMode: view.payload_mode })
+            .reconcileEnvironmentSeats(view.environments, { payloadMode })
             .catch(() => ({ boundIds: [] }))
           if (reconciled.boundIds?.length) {
             view = await callHost('list', {})
@@ -1419,6 +1428,7 @@ export function createGeminiPanelHandler({
           available: true,
           payload_state: PAYLOAD_STATES.has(view.payload_state) ? view.payload_state : 'unknown',
           ...(view.payload_mode === 'crag_subscription' ? { payload_mode: 'crag_subscription' } : {}),
+          self_kernel: isSelfKernel(projectRoot),
           payload_issue: PAYLOAD_ISSUES.has(view.payload_issue) ? view.payload_issue : null,
           release_activated: typeof view.release_activated === 'boolean' ? view.release_activated : null,
           oauth_runtime_issue: OAUTH_ISSUES.has(view.oauth_runtime_issue) ? view.oauth_runtime_issue : null,

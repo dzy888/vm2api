@@ -1176,6 +1176,8 @@ export function createGeminiCragSubscription({
         return { ok: true, seat_required: false }
       }
       const lic = environment.crag_license
+      // Self kernels are licensed by their own bypass, with or without a seat.
+      if (payloadMode === 'self_kernel') return { ok: true, seat_required: false }
       if (payloadMode !== 'crag_subscription' && !lic) {
         return { ok: true, seat_required: false }
       }

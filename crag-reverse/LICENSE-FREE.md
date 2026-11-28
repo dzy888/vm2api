@@ -114,3 +114,27 @@ switch back.
 The `kernel-self/install` route does not notify the maintenance cache, so right after
 installing the status shows `unverified` (`gemini_maintenance_payload_unverified`) until
 a `diagnose` runs. Running `diagnose` settles it to `installed`.
+
+## 0.5.3 bring-up and PTY readiness (2026-11-28, later)
+
+The signed `payload-2026.11.27-gemini-0.5.3` package was decrypted and diffed against
+0.5.2. Genuinely new: `Config::allowed_agy_digests`, `McpCoordinator::tool_count`,
+`ShmRingOwner::dup_resp_eventfd` / `dup_req_space_eventfd`,
+`acp_backend::build_default_acp_args`, `CRAGGEMINI_ACP_HOOK_MODE` (absent in 0.5.2),
+`--dangerously-skip-permissions` on `agy acp`, and version 0.5.3. All ported.
+
+The official 0.5.3 core runs `agy acp --stdio` (captured argv/env), while this
+reconstruction keeps the PTY path. PTY differences that broke submits:
+
+- the child environment was rebuilt from scratch, dropping `TERM`/`XDG_*`; inherit the
+  service environment and override the account keys instead;
+- a fresh home shows agy's first-run wizard ("Choose your color scheme") and blocks the
+  TUI forever; write `cache/onboarding.json` complete before spawn;
+- wait for the TUI prompt (`? for shortcuts`) plus a quiet period before accepting
+  submits, otherwise the bridge drops the turn and the client times out;
+- `provider_start` carries `status` + `error_body` and no SSE follows on 4xx; surface
+  it as the official `⚠ <message>` notice turn (verified with a live 403).
+
+Account note: with a token refreshed on 2026-11-28 04:48Z, Google still answers
+`403 TOS_VIOLATION` (`reason: TOS_VIOLATION`, appeal form) — the **official 0.5.3 core
+returns the identical notice**, so the flag is account-side, not kernel-side.

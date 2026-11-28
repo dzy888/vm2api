@@ -254,13 +254,15 @@ pub struct AcpAccountWorker {
     pub stderr: Arc<std::sync::Mutex<Vec<u8>>>,
 }
 
-pub fn acp_args(cfg: &AcpWorkerConfig, log_file: &Path) -> Vec<String> {
-    // Captured: `agy acp --stdio --disable-telemetry
-    // --include-default-customizations=<bool> --cli_log_file <path>`.
+/// `acp_backend::build_default_acp_args` (0.5.3): headless ACP defaults now
+/// auto-approve permissions (`--dangerously-skip-permissions`; the bridge
+/// auto-answers `session/request_permission`).
+pub fn build_default_acp_args(cfg: &AcpWorkerConfig, log_file: &Path) -> Vec<String> {
     vec![
         "acp".to_string(),
         "--stdio".to_string(),
         "--disable-telemetry".to_string(),
+        "--dangerously-skip-permissions".to_string(),
         format!(
             "--include-default-customizations={}",
             if cfg.include_default_customizations { "true" } else { "false" }
@@ -270,12 +272,20 @@ pub fn acp_args(cfg: &AcpWorkerConfig, log_file: &Path) -> Vec<String> {
     ]
 }
 
+pub fn acp_args(cfg: &AcpWorkerConfig, log_file: &Path) -> Vec<String> {
+    build_default_acp_args(cfg, log_file)
+}
+
 impl AcpAccountWorker {
     pub async fn spawn(cfg: AcpWorkerConfig, log_file: PathBuf) -> std::io::Result<Self> {
         let mut child = tokio::process::Command::new(&cfg.agy_bin)
             .args(acp_args(&cfg, &log_file))
             .current_dir(&cfg.work_dir)
             .env("HOME", &cfg.acp_home)
+            // 0.5.3: strip agy's built-in tools so the client MCP catalog is not
+            // truncated by the 20k-token budget (raw built-in tool_call SSE is
+            // suppressed by the bridge).
+            .env("CRAGGEMINI_ACP_HOOK_MODE", "client_mcp_only")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

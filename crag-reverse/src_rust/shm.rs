@@ -79,6 +79,28 @@ fn round_pow2(n: usize) -> usize {
     n.max(MIN_RING).min(MAX_RING).next_power_of_two()
 }
 
+fn dup_owned(fd: &OwnedFd) -> std::io::Result<OwnedFd> {
+    let raw = unsafe { libc::dup(fd.as_raw_fd()) };
+    if raw < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(unsafe { OwnedFd::from_raw_fd(raw) })
+    }
+}
+
+impl ShmRingOwner {
+    /// `ShmRingOwner::dup_resp_eventfd` (0.5.3): hand a copy to the child so the
+    /// parent keeps the original for its own wakeups.
+    pub fn dup_resp_eventfd(&self) -> std::io::Result<OwnedFd> {
+        dup_owned(&self.response_eventfd)
+    }
+
+    /// `ShmRingOwner::dup_req_space_eventfd` (0.5.3).
+    pub fn dup_req_space_eventfd(&self) -> std::io::Result<OwnedFd> {
+        dup_owned(&self.request_eventfd)
+    }
+}
+
 fn notify(fd: &OwnedFd) {
     let one: u64 = 1;
     unsafe {

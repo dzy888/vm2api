@@ -180,6 +180,11 @@ impl McpCoordinator {
         revision
     }
 
+    /// `McpCoordinator::tool_count` (0.5.3).
+    pub async fn tool_count(&self) -> usize {
+        self.state.lock().await.tools.len()
+    }
+
     pub async fn tools(&self) -> (u64, Vec<McpToolSpec>) {
         let state = self.state.lock().await;
         (

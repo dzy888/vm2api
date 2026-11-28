@@ -14,6 +14,17 @@ use crate::shm::{RingFrame, ShmRingOwner};
 pub const READ_BUFFER: usize = 0x2000;
 
 /// Extract the assistant text carried by one raw SSE chunk (`data: {...}`).
+/// A 4xx/5xx `provider_start` ends the turn with an error body instead of SSE.
+/// Surface the upstream message the same way the official core does (a leading
+/// `⚠` notice) so clients see the reason instead of an idle timeout.
+fn upstream_notice(error_body: Option<&str>, status: u16) -> Option<String> {
+    let raw = error_body?;
+    let value: Value = serde_json::from_str(raw).ok()?;
+    let message = value.pointer("/error/message").and_then(Value::as_str)?;
+    let _ = status;
+    Some(format!("\n⚠ {message}\n"))
+}
+
 /// Inner `data:` payloads of a raw provider SSE blob, one per event.
 fn sse_data_frames(raw: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -417,8 +428,20 @@ impl Bridge {
                 | FromBridge::Ready { .. }
                 | FromBridge::Idle { .. }
                 | FromBridge::ProviderSseShm { .. }
-                | FromBridge::NativeToolShm { .. }
-                | FromBridge::ProviderStart { .. } => {}
+                | FromBridge::NativeToolShm { .. } => {}
+                FromBridge::ProviderStart {
+                    status, error_body, ..
+                } => {
+                    if status >= 400 {
+                        if let Some(notice) = upstream_notice(error_body.as_deref(), status) {
+                            return Ok(crate::server::JsonTurnResult {
+                                status: 200,
+                                body: serde_json::json!({ "text": notice, "stop_reason": "STOP" }),
+                                usage: None,
+                            });
+                        }
+                    }
+                }
                 FromBridge::ProviderSse { payload, .. } => {
                     if let Some(t) = payload.pointer("/delta/text").and_then(Value::as_str) {
                         text.push_str(t);
@@ -672,6 +695,33 @@ async fn stream_task(
         };
         deadline = idle;
         let out = match frame {
+            FromBridge::ProviderStart {
+                status, error_body, ..
+            } => {
+                // 4xx/5xx: synthesize the notice turn (text + terminal frame).
+                match (status >= 400)
+                    .then(|| upstream_notice(error_body.as_deref(), status))
+                    .flatten()
+                {
+                    Some(notice) => {
+                        let text = serde_json::json!({
+                            "candidates": [{
+                                "content": { "role": "model", "parts": [{ "text": notice }] }
+                            }]
+                        });
+                        let end = serde_json::json!({
+                            "candidates": [{ "content": { "role": "model", "parts": [] }, "finishReason": "STOP" }]
+                        });
+                        let _ = tx
+                            .send(Ok(bytes::Bytes::from(format!(
+                                "event: provider_sse\ndata: {text}\n\nevent: provider_sse\ndata: {end}\n\nevent: provider_end\ndata: {{\"status\":200,\"complete\":true}}\n\n"
+                            ))))
+                            .await;
+                        return;
+                    }
+                    None => String::new(),
+                }
+            }
             FromBridge::ProviderSse { payload, .. } => {
                 // Ring frames carry the provider's raw SSE text; the client
                 // contract is the inner `data:` JSON, not our envelope.

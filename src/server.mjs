@@ -1566,6 +1566,7 @@ const geminiScheduler = createGeminiScheduler({
   get schedulerRuntime() {
     return schedulerRuntime
   },
+  projectRoot: cfg.paths.project,
   listCacheTtlMs: 2000,
 })
 const handleGeminiPublic = createGeminiPublicHandler({
@@ -2613,6 +2614,7 @@ server.listen(cfg.port, cfg.host, () => {
           await warmGeminiEnvironments({
             callHost: callGeminiHost,
             proxyPool: () => proxyPool,
+            projectRoot: cfg.paths.project,
           })
         } catch {
           // Host daemon may be absent on non-Gemini installs; stay silent.

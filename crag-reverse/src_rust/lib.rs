@@ -1,4 +1,4 @@
-//! Reconstructed `craggemini_core` 0.5.2 (baseline 0.4.13 + upstream delta). Compiles only approximately; see `README.md`.
+//! Reconstructed `craggemini_core` 0.5.3 (baseline 0.4.13 + upstream deltas). Compiles only approximately; see `README.md`.
 #![allow(dead_code, unused, non_snake_case)]
 
 use std::path::PathBuf;
@@ -199,6 +199,21 @@ fn default_slot_rss() -> u64 {
 }
 
 impl Config {
+    /// `Config::allowed_agy_digests` (0.5.3): the pinned digest plus every
+    /// rotation digest, de-duplicated.
+    pub fn allowed_agy_digests(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if !self.agy_sha256.is_empty() {
+            out.push(self.agy_sha256.clone());
+        }
+        for digest in &self.allowed_agy_sha256s {
+            if !digest.is_empty() && !out.contains(digest) {
+                out.push(digest.clone());
+            }
+        }
+        out
+    }
+
     /// `Config::memory_policy` (0.5.0): admission tunables in one place.
     pub fn memory_policy(&self) -> admission::MemoryAdmission {
         admission::MemoryAdmission {

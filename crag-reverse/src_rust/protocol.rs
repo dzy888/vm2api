@@ -309,6 +309,16 @@ pub enum FromBridge {
         seq: u64,
         #[serde(default)]
         upstream: String,
+        #[serde(default)]
+        attempt_id: Option<String>,
+        #[serde(default)]
+        content_type: Option<String>,
+        /// Upstream HTTP status (`8 elements` per the 0.5.3 decompilation).
+        #[serde(default)]
+        status: u16,
+        /// Raw provider error body; on 4xx/5xx no SSE follows, so this is the turn.
+        #[serde(default)]
+        error_body: Option<String>,
         subagent: Option<String>,
     },
     Ready {

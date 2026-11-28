@@ -10,6 +10,7 @@ import {
   createSseFrameSplitter,
 } from '../protocol/gemini-convert.mjs'
 import { createStreamTiming } from '../protocol/stream-timing.mjs'
+import { effectivePayloadMode } from './self-kernel.mjs'
 import { isGeminiModelEnabled, isGeminiSeriesId, resolveGeminiDefaultEffort } from '../protocol/gemini-model-policy.mjs'
 import { classifyAntigravityModel, indexAccountModelCatalog, resolveUpstreamModel } from './model-catalog.mjs'
 import { createDirectCragClient } from './direct-client.mjs'
@@ -566,6 +567,7 @@ export function createGeminiScheduler({
   listCacheTtlMs = callHost === callGeminiHost ? 2000 : 0,
   directClient = undefined,
   initialEnvironments = null,
+  projectRoot = null,
   now = () => Date.now(),
 }) {
   let boundSchedulerRuntime = schedulerRuntime || null
@@ -663,7 +665,7 @@ export function createGeminiScheduler({
       .then(() => callHost('list', {}))
       .then((view) => {
         if (Array.isArray(view?.environments)) {
-          const payloadMode = view.payload_mode === 'crag_subscription' ? 'crag_subscription' : 'legacy_release'
+          const payloadMode = effectivePayloadMode(view, projectRoot)
           updateCachedEnvironments(view.environments, payloadMode)
           if (effectiveListCacheTtlMs > 0) {
             hostListCache = { view, fetchedAt: now() }
@@ -803,6 +805,9 @@ export function createGeminiScheduler({
 
   function checkEnvironmentLicense(environment, payloadMode) {
     if (environment.auth_method === 'api_key') return { ok: true, seat_required: false }
+    // The reconstructed kernel validates a permit when present but never needs
+    // one; a self kernel must run even after the seat is released.
+    if (payloadMode === 'self_kernel') return { ok: true, seat_required: false }
     if (cragSubscription?.checkAdmission) {
       return cragSubscription.checkAdmission(environment, { payloadMode })
     }
@@ -948,7 +953,7 @@ export function createGeminiScheduler({
       let view = await fetchHostList({ force: forceRefresh })
       if (!Array.isArray(view?.environments)) throw fail(502, 'gemini_host_protocol_error')
       if (view.payload_state !== 'installed') return { models: [], accounts: [] }
-      const payloadMode = view.payload_mode === 'crag_subscription' ? 'crag_subscription' : 'legacy_release'
+      const payloadMode = effectivePayloadMode(view, projectRoot)
       if (payloadMode === 'crag_subscription' && cragSubscription?.reconcileEnvironmentSeats) {
         const needSeat = view.environments.filter(
           (environment) =>

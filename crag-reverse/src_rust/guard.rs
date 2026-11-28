@@ -110,6 +110,55 @@ fn start_guard(
         return Err(Failure::new(500, "slot_guard_error", "pipe2 failed"));
     }
     let parent = unsafe { libc::getpid() };
+    // Build the child environment before forking: the runtime is multi-threaded,
+    // so allocating or locking inside the child is unsafe.
+    let mut env_pairs: Vec<(String, String)> = std::env::vars().collect();
+    let mut set = |pairs: &mut Vec<(String, String)>, key: &str, value: String| {
+        pairs.retain(|(k, _)| k != key);
+        pairs.push((key.to_string(), value));
+    };
+    if let Some(so) = &binding.bridge_so {
+        set(&mut env_pairs, "LD_PRELOAD", so.display().to_string());
+    }
+    if !binding.env_id.is_empty() {
+        set(&mut env_pairs, "CRAGGEMINI_SLOT_ID", binding.env_id.clone());
+    }
+    set(&mut env_pairs, "HOME", binding.agy_home.display().to_string());
+    set(
+        &mut env_pairs,
+        "XDG_CONFIG_HOME",
+        binding.agy_home.join(".config").display().to_string(),
+    );
+    set(
+        &mut env_pairs,
+        "XDG_CACHE_HOME",
+        binding.agy_home.join(".cache").display().to_string(),
+    );
+    set(&mut env_pairs, "CRAGGEMINI_ACCOUNT_ID", binding.account_id.clone());
+    set(&mut env_pairs, "CRAGGEMINI_ENV_ID", binding.env_id.clone());
+    if !binding.proxy_id.is_empty() {
+        set(&mut env_pairs, "CRAGGEMINI_PROXY_ID", binding.proxy_id.clone());
+        set(
+            &mut env_pairs,
+            "CRAGGEMINI_PROXY_SHA256",
+            binding.proxy_sha256.clone(),
+        );
+    }
+    for (k, v) in extra_env {
+        set(&mut env_pairs, k, v.clone());
+    }
+    // The TUI needs a terminal description; without TERM bubbletea quits at once.
+    if !env_pairs.iter().any(|(k, v)| k == "TERM" && !v.is_empty()) {
+        set(&mut env_pairs, "TERM", "xterm-256color".to_string());
+    }
+    set(&mut env_pairs, "USER", "agy".to_string());
+    set(&mut env_pairs, "LOGNAME", "agy".to_string());
+    set(&mut env_pairs, "LANG", "C.UTF-8".to_string());
+    set(
+        &mut env_pairs,
+        "AGY_CLI_DISABLE_AUTO_UPDATE",
+        "true".to_string(),
+    );
     let pid = unsafe { libc::fork() };
     if pid < 0 {
         return Err(Failure::new(500, "slot_guard_error", "fork failed"));
@@ -117,45 +166,16 @@ fn start_guard(
     if pid == 0 {
         unsafe { libc::close(pipe[0]) };
         child_pre_exec_attach(parent, true, slave, pipe[1]);
-        let mut envs: Vec<std::ffi::CString> = Vec::new();
-        if let Some(so) = &binding.bridge_so {
-            envs.push(std::ffi::CString::new(format!("LD_PRELOAD={}", so.display())).unwrap());
-        }
-        if !binding.env_id.is_empty() {
-            envs.push(
-                std::ffi::CString::new(format!("CRAGGEMINI_SLOT_ID={}", binding.env_id)).unwrap(),
-            );
-        }
-        if let Ok(path) = std::env::var("PATH") {
-            envs.push(std::ffi::CString::new(format!("PATH={path}")).unwrap());
-        }
-        envs.push(std::ffi::CString::new(format!("HOME={}", binding.agy_home.display())).unwrap());
-        envs.push(
-            std::ffi::CString::new(format!("CRAGGEMINI_ACCOUNT_ID={}", binding.account_id))
-                .unwrap(),
-        );
-        envs.push(std::ffi::CString::new(format!("CRAGGEMINI_ENV_ID={}", binding.env_id)).unwrap());
-        if !binding.proxy_id.is_empty() {
-            envs.push(
-                std::ffi::CString::new(format!("CRAGGEMINI_PROXY_ID={}", binding.proxy_id))
-                    .unwrap(),
-            );
-            envs.push(
-                std::ffi::CString::new(format!("CRAGGEMINI_PROXY_SHA256={}", binding.proxy_sha256))
-                    .unwrap(),
-            );
-        }
-        for (k, v) in extra_env {
-            if let (Ok(key), Ok(value)) = (
-                std::ffi::CString::new(k.as_str()),
-                std::ffi::CString::new(v.as_str()),
-            ) {
-                unsafe { libc::setenv(key.as_ptr(), value.as_ptr(), 1) };
-            }
-            if let Ok(pair) = std::ffi::CString::new(format!("{k}={v}")) {
-                envs.push(pair);
+        // The guarded process runs inside the account work directory.
+        if !binding.work_dir.as_os_str().is_empty() {
+            if let Ok(dir) = std::ffi::CString::new(binding.work_dir.display().to_string()) {
+                unsafe { libc::chdir(dir.as_ptr()) };
             }
         }
+        let envs: Vec<std::ffi::CString> = env_pairs
+            .iter()
+            .filter_map(|(k, v)| std::ffi::CString::new(format!("{k}={v}")).ok())
+            .collect();
         let mut argv: Vec<std::ffi::CString> =
             vec![std::ffi::CString::new(bin.display().to_string()).unwrap()];
         argv.extend(

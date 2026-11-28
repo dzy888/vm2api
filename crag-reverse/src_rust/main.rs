@@ -24,7 +24,7 @@ fn main() {
     while i < args.len() {
         match args[i].as_str() {
             "--version" => {
-                println!("craggemini 0.4.13");
+                println!("craggemini 0.5.3");
                 return;
             }
             "--help" => {

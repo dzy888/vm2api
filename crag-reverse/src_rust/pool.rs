@@ -148,6 +148,84 @@ impl AgySlot {
                 .send_ring_fds(ring)
                 .map_err(|e| Failure::new(500, "slot_handshake_failed", &e.to_string()))?;
         }
+        // First-run onboarding blocks the TUI (and therefore every submit) until it
+        // is dismissed. The 0.5.3 control plane runs agy in ACP mode and never sees
+        // it; the PTY path marks completion so the TUI goes straight to the prompt.
+        ensure_onboarding_complete(&agy_home);
+        // The TUI needs a moment before the native bridge accepts submits; reading
+        // the PTY until the chat prompt appears also captures startup diagnostics.
+        {
+            let mut buf = [0u8; 8192];
+            let mut collected = Vec::new();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
+            let mut prompt_at: Option<std::time::Instant> = None;
+            let mut last_output = std::time::Instant::now();
+            while std::time::Instant::now() < deadline {
+                let n = unsafe {
+                    libc::read(pty.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len())
+                };
+                if n > 0 {
+                    last_output = std::time::Instant::now();
+                    collected.extend_from_slice(&buf[..n as usize]);
+                    let text = String::from_utf8_lossy(&collected);
+                    if prompt_at.is_none()
+                        && (text.contains("? for shortcuts") || text.contains("esc to interrupt"))
+                    {
+                        prompt_at = Some(std::time::Instant::now());
+                    }
+                } else {
+                    // Prompt is up and the TUI has been quiet for a moment: the
+                    // bridge accepts submits from here (extensions/oauth settle).
+                    if let Some(at) = prompt_at {
+                        if at.elapsed().as_millis() > 5000 && last_output.elapsed().as_millis() > 1500
+                        {
+                            break;
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                }
+            }
+            if !collected.is_empty() {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(work_dir.join("pty-debug.log"))
+                {
+                    let _ = f.write_all(&collected);
+                    let _ = f.write_all(b"\n--- spawn ---\n");
+                }
+            }
+        }
+        // Drain the PTY for the slot's lifetime so TUI failures and the exit
+        // status land in `pty-debug.log` instead of being swallowed.
+        if let Ok(debug_fd) = pty.try_clone() {
+            let log_path = work_dir.join("pty-debug.log");
+            std::thread::spawn(move || {
+                use std::io::Write;
+                let mut buf = [0u8; 8192];
+                loop {
+                    let n = unsafe { libc::read(debug_fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
+                    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&log_path).ok();
+                    if n > 0 {
+                        if let Some(f) = file.as_mut() { let _ = f.write_all(&buf[..n as usize]); }
+                        continue;
+                    }
+                    if n == 0 {
+                        let status = unsafe { libc::waitpid(pid, std::ptr::null_mut(), 0) };
+                        if let Some(f) = file.as_mut() {
+                            let _ = writeln!(f, "\n[pty eof waitpid={status}]\n");
+                        }
+                        return;
+                    }
+                    if std::io::Error::last_os_error().kind() != std::io::ErrorKind::WouldBlock {
+                        if let Some(f) = file.as_mut() { let _ = writeln!(f, "\n[pty err {:?}]\n", std::io::Error::last_os_error()); }
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+            });
+        }
         // spawn::closure#7 — per-slot session journal/store.
         let journal = crate::journal::Journal::open_at(&work_dir.join("journal.jsonl")).ok();
         let slot = Self {
@@ -332,6 +410,36 @@ impl AccountPool {
         self.circuit_open_until
             .map(|t| t > Instant::now())
             .unwrap_or(false)
+    }
+}
+
+/// `agy`'s TUI keeps a first-run wizard in
+/// `<agy_home>/.gemini/antigravity-cli/cache/onboarding.json`; a false/missing
+/// file leaves the slot stuck at "Choose your color scheme" forever in pool mode.
+fn ensure_onboarding_complete(agy_home: &std::path::Path) {
+    let path = agy_home
+        .join(".gemini")
+        .join("antigravity-cli")
+        .join("cache")
+        .join("onboarding.json");
+    if let Some(dir) = path.parent() {
+        let _ = crate::binding::ensure_private_dir(dir);
+    }
+    let mut doc = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let done = doc.get("onboardingComplete").and_then(|v| v.as_bool()) == Some(true);
+    if done {
+        return;
+    }
+    if let Some(obj) = doc.as_object_mut() {
+        obj.insert("consumerOnboardingComplete".into(), true.into());
+        obj.insert("enterpriseOnboardingComplete".into(), true.into());
+        obj.insert("onboardingComplete".into(), true.into());
+    }
+    if let Ok(bytes) = serde_json::to_vec(&doc) {
+        let _ = std::fs::write(&path, bytes);
     }
 }
 
