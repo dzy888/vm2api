@@ -37,6 +37,7 @@ __pycache__/
 crates/
 !/scheduler/crates/
 /scheduler/target/
+crag-reverse/src_rust/target/
 patches/*
 !/patches/kernel-6.12/
 .local/

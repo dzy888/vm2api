@@ -319,6 +319,9 @@ pub enum FromBridge {
         /// Raw provider error body; on 4xx/5xx no SSE follows, so this is the turn.
         #[serde(default)]
         error_body: Option<String>,
+        /// 8th field of the real variant: retry hint for 429s.
+        #[serde(default)]
+        retry_after_ms: Option<u64>,
         subagent: Option<String>,
     },
     Ready {

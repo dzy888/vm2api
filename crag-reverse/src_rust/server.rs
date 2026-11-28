@@ -76,6 +76,9 @@ pub struct Runtime {
     pub registry: std::sync::Mutex<Registry>,
     pub internal_token: String,
     pub license: std::sync::Mutex<Option<LicenseStatus>>,
+    /// Pool mode readiness: false until the warm slots are up, so the host waits
+    /// instead of sending requests into a cold pool (which yields pool-overload 429s).
+    pub warm_ready: Arc<std::sync::atomic::AtomicBool>,
     /// Pool mode: the host readiness probe expects `pool.enabled/ready` instead
     /// of a `native_pid`, because workers are spawned per account on demand.
     pub pool_mode: bool,
@@ -148,7 +151,10 @@ impl Runtime {
             "license": license.as_ref().map(|l| l.status.clone()),
         });
         if self.pool_mode {
-            value["pool"] = json!({ "enabled": true, "ready": true });
+            let ready = self
+                .warm_ready
+                .load(std::sync::atomic::Ordering::Relaxed);
+            value["pool"] = json!({ "enabled": true, "ready": ready });
         }
         value
     }
@@ -249,7 +255,8 @@ pub async fn run_with_license(
     gate: LicenseGate,
     device: Device,
 ) -> Result<(), Response> {
-    let runtime = Runtime {
+    let pool_mode = config.max_accounts > 0 || !config.accounts.is_empty();
+    let runtime = Arc::new(Runtime {
         vm_id: config.vm_id.clone(),
         gate,
         device,
@@ -268,15 +275,28 @@ pub async fn run_with_license(
         registry: Default::default(),
         internal_token: config.internal_token.clone(),
         license: std::sync::Mutex::new(None),
-        pool_mode: config.max_accounts > 0 || !config.accounts.is_empty(),
-    };
+        warm_ready: Arc::new(std::sync::atomic::AtomicBool::new(!pool_mode)),
+        pool_mode,
+    });
     runtime.check_license()?;
+    if pool_mode {
+        let warmed = runtime.clone();
+        tokio::spawn(async move {
+            {
+                let mut pool = warmed.pool.lock().await;
+                let _ = pool.warm_min().await;
+            }
+            warmed
+                .warm_ready
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+    }
     serve_http(runtime, config).await;
     Ok(())
 }
 
 /// `server::serve_http`: route table recovered from the dispatch literals.
-pub async fn serve_http(runtime: Runtime, config: crate::Config) {
+pub async fn serve_http(runtime: Arc<Runtime>, config: crate::Config) {
     let app: Router = Router::new()
         .route("/healthz", get(healthz))
         .route("/v1/health", get(external_health))
@@ -306,7 +326,7 @@ pub async fn serve_http(runtime: Runtime, config: crate::Config) {
         .route("/internal/mcp/call", post(mcp_call))
         .route("/internal/mcp/cancel", post(mcp_cancel))
         .route("/internal/mcp/events", get(mcp_events))
-        .with_state(Arc::new(runtime));
+        .with_state(runtime);
     let socket = std::path::Path::new(&config.run_dir).join("kernel.sock");
     if let Some(parent) = socket.parent() {
         let _ = std::fs::create_dir_all(parent);

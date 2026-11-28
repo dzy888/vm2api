@@ -1342,6 +1342,8 @@ export function createGeminiPanelHandler({
     const ok = (data) => json(res, 200, { ok: true, data })
     const fail = (status, code, message = code, extra = null) =>
       json(res, status, { ok: false, error: { code, message, ...(extra || {}) } })
+    // Self kernels carry the official package format but must not take a seat.
+    const seatPayloadMode = isSelfKernel(projectRoot) ? 'self_kernel' : undefined
     res.setHeader('Cache-Control', 'no-store')
     if (pathname === `${PANEL_PATH}/maintenance` || pathname.startsWith(`${PANEL_PATH}/maintenance/`)) {
       return maintenance(req, res, pathname)
@@ -1484,7 +1486,7 @@ export function createGeminiPanelHandler({
           if (ownerUserId && geminiOwnersRepo?.setOwner) geminiOwnersRepo.setOwner(created.id, ownerUserId)
           if (cragSubscription?.ensureEnvironmentSeat) {
             const seat = await cragSubscription
-              .ensureEnvironmentSeat(created.id, { env: created })
+              .ensureEnvironmentSeat(created.id, { env: created, payloadMode: seatPayloadMode })
               .catch(() => ({ bound: false }))
             if (seat.bound) created = await callHost('get', { id: created.id })
           }
@@ -1602,7 +1604,7 @@ export function createGeminiPanelHandler({
         }
         if (method === 'oauth' && cragSubscription?.ensureEnvironmentSeat) {
           const seat = await cragSubscription
-            .ensureEnvironmentSeat(created.id, { env: created })
+            .ensureEnvironmentSeat(created.id, { env: created, payloadMode: seatPayloadMode })
             .catch(() => ({ bound: false }))
           if (seat.bound) {
             created = await callHost('get', { id: created.id })
@@ -1812,7 +1814,7 @@ export function createGeminiPanelHandler({
           ...boundProxy(proxyPool, environment, { ownerUserId: envOwnerOf(id) }),
         })
         if (environment.auth_method === 'oauth' && cragSubscription?.ensureEnvironmentSeat) {
-          const seat = await cragSubscription.ensureEnvironmentSeat(id, { env: result }).catch(() => ({ bound: false }))
+          const seat = await cragSubscription.ensureEnvironmentSeat(id, { env: result, payloadMode: seatPayloadMode }).catch(() => ({ bound: false }))
           if (seat.bound) {
             result = await callHost('get', { id })
           }
@@ -1874,7 +1876,7 @@ export function createGeminiPanelHandler({
         })
         if (environment.auth_method === 'oauth' && cragSubscription?.ensureEnvironmentSeat) {
           const seat = await cragSubscription
-            .ensureEnvironmentSeat(id, { env: refreshed })
+            .ensureEnvironmentSeat(id, { env: refreshed, payloadMode: seatPayloadMode })
             .catch(() => ({ bound: false }))
           if (seat.bound) {
             refreshed = await callHost('get', { id })
@@ -1930,7 +1932,7 @@ export function createGeminiPanelHandler({
         })
         if (cragSubscription?.ensureEnvironmentSeat) {
           const seat = await cragSubscription
-            .ensureEnvironmentSeat(id, { env: completed })
+            .ensureEnvironmentSeat(id, { env: completed, payloadMode: seatPayloadMode })
             .catch(() => ({ bound: false }))
           if (seat.bound) {
             completed = await callHost('get', { id })

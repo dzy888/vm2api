@@ -85,3 +85,16 @@ Panel `test-chat` completed twice with real model text and usage — production 
   after re-authorization; the **official 0.5.3 core returns the identical notice**.
 - Gotcha: the gemini host binds `current/` into an existing bwrap slot; replacing
   `current` does not affect a running slot until `systemctl restart vm2api-gemini`.
+
+## 0.5.4 + seat rebind fix
+
+- Kernel bumped to 0.5.4 (`payload-2026.11.28-gemini-0.5.4`): LocalProxyBridge
+  `child_proxy_env` now exports HTTP(S)/ALL/GRPC proxy in both cases, loopback bridge
+  is started for bindings with `proxy_url`; `deploy/payload.json` pinned to 0.5.4.
+- `ensureEnvironmentSeat` call sites (create/auto-oauth/refresh/test-chat/models) now
+  pass `payloadMode: 'self_kernel'`, so a self kernel does not re-bind a seat on any
+  interactive flow. Verified: release -> test-chat completes -> `used_slots 0`, only
+  `device.json` left in the license dir.
+- Egress: account proxy `px-9405ce26` (SOCKS5 74.1.98.184:5782) rejects auth
+  (`User was rejected by the SOCKS5 server`), so both official and self traffic fall
+  back to the VPS IP. Google still answers `403 TOS_VIOLATION`; official core does too.

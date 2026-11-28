@@ -1,4 +1,4 @@
-//! Reconstructed `craggemini_core` 0.5.3 (baseline 0.4.13 + upstream deltas). Compiles only approximately; see `README.md`.
+//! Reconstructed `craggemini_core` 0.5.4 (baseline 0.4.13 + upstream deltas). Compiles only approximately; see `README.md`.
 #![allow(dead_code, unused, non_snake_case)]
 
 use std::path::PathBuf;

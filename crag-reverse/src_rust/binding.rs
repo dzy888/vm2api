@@ -455,14 +455,25 @@ pub fn child_proxy_env(binding: &BoundAccount) -> HashMap<String, String> {
         return HashMap::new();
     };
     let url = format!("http://127.0.0.1:{}", bridge.port);
-    ["http_proxy", "https_proxy", "all_proxy"]
-        .into_iter()
-        .map(|k| (k.to_string(), url.clone()))
-        .chain(std::iter::once((
-            "no_proxy".to_string(),
-            "127.0.0.1,localhost".to_string(),
-        )))
-        .collect()
+    // 0.5.4 exports the gRPC proxy names alongside the HTTP ones, in both cases.
+    [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "GRPC_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "grpc_proxy",
+    ]
+    .into_iter()
+    .map(|k| (k.to_string(), url.clone()))
+    .chain(
+        ["NO_PROXY", "no_proxy"]
+            .into_iter()
+            .map(|k| (k.to_string(), "127.0.0.1,localhost,::1".to_string())),
+    )
+    .collect()
 }
 
 pub struct BoundAccount {

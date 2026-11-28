@@ -105,7 +105,7 @@ impl AgySlot {
             .map(|k| k.stamp())
             .unwrap_or_default();
         let slot_index = config.max_concurrency.saturating_sub(1);
-        let extra_env = vec![
+        let mut extra_env = vec![
             (
                 "CRAGGEMINI_NATIVE_SOCKET".to_string(),
                 native_path.display().to_string(),
@@ -115,6 +115,19 @@ impl AgySlot {
             ("CRAGGEMINI_SLOT_INDEX".to_string(), slot_index.to_string()),
             ("CRAGGEMINI_VERIFIED_EXE_META".to_string(), exe_meta),
         ];
+        // Non-transparent egress: expose a loopback proxy bridge and hand its
+        // address to the child (0.5.4 also exports the gRPC proxy names).
+        if !binding.proxy_url.is_empty() {
+            if let Ok(parsed) = crate::binding::parse_proxy_url(&binding.proxy_url) {
+                if let Ok(bridge) = crate::binding::LocalProxyBridge::start(parsed).await {
+                    let bound = crate::binding::BoundAccount {
+                        binding: binding.clone(),
+                        local_bridge: Some(bridge),
+                    };
+                    extra_env.extend(crate::binding::child_proxy_env(&bound));
+                }
+            }
+        }
         let (pty, pid, guard) =
             crate::guard::open_pty(&config.agy_bin, &args, &binding, &extra_env)?;
         let (stream, _) =
@@ -468,6 +481,24 @@ impl PoolManager {
             active: Default::default(),
             next_stream_id: 1,
         })
+    }
+
+    /// Warm at least one slot before the host's readiness probe passes. Without
+    /// this the first requests hit a cold pool and the control plane returns
+    /// `gemini_pool_overloaded` (429) while the TUI is still initializing.
+    pub async fn warm_min(&mut self) -> Result<(), Failure> {
+        let target = self.config.min_warm_slots.max(1) as usize;
+        while self.idle.len() < target {
+            let binding = AccountBindingConfig::from_config(&self.config);
+            let slot = AgySlot::spawn(
+                self.config.clone(),
+                binding,
+                self.config.session_id.clone(),
+            )
+            .await?;
+            self.idle.push_back(slot);
+        }
+        Ok(())
     }
 
     /// `pool::take_matching_idle`: pick the least-recently-used reusable slot for the account.

@@ -138,3 +138,58 @@ reconstruction keeps the PTY path. PTY differences that broke submits:
 Account note: with a token refreshed on 2026-11-28 04:48Z, Google still answers
 `403 TOS_VIOLATION` (`reason: TOS_VIOLATION`, appeal form) — the **official 0.5.3 core
 returns the identical notice**, so the flag is account-side, not kernel-side.
+
+## 0.5.4 delta (2026-11-28)
+
+`payload-2026.11.28-gemini-0.5.4` is the current signed release
+(`payload_key_id` unchanged, `agy` pinned to the **unpatched** 39816d49 digest; the
+bridge still accepts the patched one). Delta over 0.5.3 is confined to
+`LocalProxyBridge`:
+
+- `child_proxy_env` now exports `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/GRPC_PROXY` plus the
+  lowercase forms and `NO_PROXY=127.0.0.1,localhost,::1`;
+- hardened proxy parsing: IPv6/domain hosts, RFC 1929 SOCKS5 auth version, case-
+  insensitive `Basic Proxy-Authorization`, plain-HTTP forwarding on the default port.
+
+Ported: version 0.5.4, the gRPC proxy env export, and the loopback bridge is now started
+for slots whose binding has a `proxy_url` (netns-transparent accounts keep direct egress
+through the iptables REDIRECT, matching the official core's captured env). Self package
+rebuilt from the 0.5.4 payload and verified: health ok, panel test-chat completes with
+the upstream TOS notice.
+
+## Upstream 4xx/429 taxonomy (2026-11-28)
+
+`provider_start` is terminal on 4xx/5xx: the official core routes it through
+`protocol::parse_upstream_error` + `build_failure_from_error_json`
+(0x4d55c0/0x4db6a0 in 0.5.3), which maps HTTP status to the gRPC reason, extracts
+`retry_after_ms`/quota fields/appeal URL and sets `effective_retryable`.
+
+The PTY reconstruction previously rendered **every** 4xx as a successful `⚠` turn, so a
+429 was reported as "completed": vm2api never cooled the account and immediately probed
+again — exactly the pattern Google reacts to. Now classified:
+
+| upstream | result |
+|---|---|
+| 403 `TOS_VIOLATION` (or other permission) | `⚠ <message>` notice turn (matches official) |
+| 429 / `RESOURCE_EXHAUSTED` / `QUOTA_EXHAUSTED` / `INSUFFICIENT_G1_CREDITS_BALANCE` | failure 429 `quota_exhausted` |
+| `MODEL_CAPACITY_EXHAUSTED` | failure 429 `model_capacity_exhausted` |
+| other 429 | failure 429 `rate_limited_generic` |
+| 401/UNAUTHENTICATED | failure 401 `gemini_oauth_required` |
+| 5xx/UNAVAILABLE | failure 503 `upstream_unavailable` |
+
+`retry_after_ms` is carried as a numeric field; `mapCragWorkerError` turns it into
+`gemini_quota_exhausted` with `retryAfterMs`, so the scheduler backs off. Six unit tests
+cover the mapping; live 403 TOS still yields the notice.
+
+## Pool-overload 429s (2026-11-28)
+
+`usage_logs` shows 24 `status=429` in 24h, but every one is our own
+`gemini_pool_overloaded` (`error_code`, `attempt_count=0`, `upstream_status=null`) —
+public requests arriving while the slot was cold/rebuilding, not a Google 429.
+The PTY slot needs ~10-12 s (TUI prompt + settle) before it accepts submits and the
+kernel used to report `pool.ready` as soon as it started, so the host sent traffic
+immediately and the control plane answered 429.
+
+Fix: `PoolManager::warm_min` spawns `max(1, min_warm_slots)` slots at startup and
+`/internal/health` reports `pool.ready=false` until that warm-up finished, so the
+host's readiness probe waits instead of hitting a cold pool.

@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::protocol::{ring_decode, Envelope, Failure, FromBridge, RingSubmitMeta};
 use crate::shm::{RingFrame, ShmRingOwner};
@@ -23,6 +23,70 @@ fn upstream_notice(error_body: Option<&str>, status: u16) -> Option<String> {
     let message = value.pointer("/error/message").and_then(Value::as_str)?;
     let _ = status;
     Some(format!("\n⚠ {message}\n"))
+}
+
+/// Classify a terminal `provider_start`:
+/// - `Ok(Some(notice))` — 403/permission class: render as the official `⚠` turn;
+/// - `Ok(None)` — informational start;
+/// - `Err` — retryable/terminal upstream failure (429 carries `retry_after_ms`).
+fn classify_provider_start(
+    status: u16,
+    error_body: Option<&str>,
+    retry_after_ms: Option<u64>,
+) -> Result<Option<String>, Failure> {
+    if status < 400 {
+        return Ok(None);
+    }
+    let raw = error_body.unwrap_or_default();
+    let value: Value = serde_json::from_str(raw).unwrap_or(Value::Null);
+    let message = value
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .unwrap_or("upstream error");
+    let grpc = value
+        .pointer("/error/status")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let reason = value
+        .pointer("/error/details/0/reason")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let fail = |code: u16, kind: &str| {
+        let mut f = Failure::new(code, kind, message);
+        f.upstream_status = Some(status);
+        f.meta = retry_after_ms
+            .map(|ms| vec![("retry_after_ms".to_string(), ms.to_string())]);
+        Err(f)
+    };
+    if status == 429
+        || grpc == "RESOURCE_EXHAUSTED"
+        || matches!(
+            reason,
+            "QUOTA_EXHAUSTED"
+                | "RATE_LIMIT_EXCEEDED"
+                | "INSUFFICIENT_G1_CREDITS_BALANCE"
+                | "MODEL_CAPACITY_EXHAUSTED"
+        )
+    {
+        return match reason {
+            "QUOTA_EXHAUSTED" | "INSUFFICIENT_G1_CREDITS_BALANCE" => fail(429, "quota_exhausted"),
+            "MODEL_CAPACITY_EXHAUSTED" => fail(429, "model_capacity_exhausted"),
+            _ => fail(429, "rate_limited_generic"),
+        };
+    }
+    if status == 401 || grpc == "UNAUTHENTICATED" {
+        return fail(401, "gemini_oauth_required");
+    }
+    if status >= 500 || grpc == "UNAVAILABLE" {
+        return fail(503, "upstream_unavailable");
+    }
+    if status == 403 || grpc == "PERMISSION_DENIED" {
+        if reason == "VALIDATION_REQUIRED" || reason == "ACCOUNT_SUSPENDED" {
+            return fail(403, "gemini_account_verification_required");
+        }
+        return Ok(Some(format!("\n⚠ {message}\n")));
+    }
+    fail(status, "upstream_error")
 }
 
 /// Inner `data:` payloads of a raw provider SSE blob, one per event.
@@ -430,18 +494,25 @@ impl Bridge {
                 | FromBridge::ProviderSseShm { .. }
                 | FromBridge::NativeToolShm { .. } => {}
                 FromBridge::ProviderStart {
-                    status, error_body, ..
-                } => {
-                    if status >= 400 {
-                        if let Some(notice) = upstream_notice(error_body.as_deref(), status) {
-                            return Ok(crate::server::JsonTurnResult {
-                                status: 200,
-                                body: serde_json::json!({ "text": notice, "stop_reason": "STOP" }),
-                                usage: None,
-                            });
-                        }
+                    status,
+                    error_body,
+                    retry_after_ms,
+                    ..
+                } => match classify_provider_start(
+                    status,
+                    error_body.as_deref(),
+                    retry_after_ms,
+                ) {
+                    Ok(Some(notice)) => {
+                        return Ok(crate::server::JsonTurnResult {
+                            status: 200,
+                            body: serde_json::json!({ "text": notice, "stop_reason": "STOP" }),
+                            usage: None,
+                        })
                     }
-                }
+                    Ok(None) => {}
+                    Err(failure) => return Err(failure),
+                },
                 FromBridge::ProviderSse { payload, .. } => {
                     if let Some(t) = payload.pointer("/delta/text").and_then(Value::as_str) {
                         text.push_str(t);
@@ -696,32 +767,48 @@ async fn stream_task(
         deadline = idle;
         let out = match frame {
             FromBridge::ProviderStart {
-                status, error_body, ..
-            } => {
-                // 4xx/5xx: synthesize the notice turn (text + terminal frame).
-                match (status >= 400)
-                    .then(|| upstream_notice(error_body.as_deref(), status))
-                    .flatten()
-                {
-                    Some(notice) => {
-                        let text = serde_json::json!({
-                            "candidates": [{
-                                "content": { "role": "model", "parts": [{ "text": notice }] }
-                            }]
-                        });
-                        let end = serde_json::json!({
-                            "candidates": [{ "content": { "role": "model", "parts": [] }, "finishReason": "STOP" }]
-                        });
-                        let _ = tx
-                            .send(Ok(bytes::Bytes::from(format!(
-                                "event: provider_sse\ndata: {text}\n\nevent: provider_sse\ndata: {end}\n\nevent: provider_end\ndata: {{\"status\":200,\"complete\":true}}\n\n"
-                            ))))
-                            .await;
-                        return;
-                    }
-                    None => String::new(),
+                status,
+                error_body,
+                retry_after_ms,
+                ..
+            } => match classify_provider_start(status, error_body.as_deref(), retry_after_ms) {
+                Ok(Some(notice)) => {
+                    let text = serde_json::json!({
+                        "candidates": [{
+                            "content": { "role": "model", "parts": [{ "text": notice }] }
+                        }]
+                    });
+                    let end = serde_json::json!({
+                        "candidates": [{ "content": { "role": "model", "parts": [] }, "finishReason": "STOP" }]
+                    });
+                    let _ = tx
+                        .send(Ok(bytes::Bytes::from(format!(
+                            "event: provider_sse\ndata: {text}\n\nevent: provider_sse\ndata: {end}\n\nevent: provider_end\ndata: {{\"status\":200,\"complete\":true}}\n\n"
+                        ))))
+                        .await;
+                    return;
                 }
-            }
+                Ok(None) => String::new(),
+                Err(failure) => {
+                    // Host maps `upstream_status` 429 (+ numeric retry_after_ms)
+                    // to `gemini_quota_exhausted` and cools the account.
+                    let mut payload = failure.to_json();
+                    if let Some(ms) = failure
+                        .meta
+                        .as_ref()
+                        .and_then(|m| m.iter().find(|(k, _)| k == "retry_after_ms"))
+                        .and_then(|(_, v)| v.parse::<u64>().ok())
+                    {
+                        payload["retry_after_ms"] = json!(ms);
+                    }
+                    let _ = tx
+                        .send(Ok(bytes::Bytes::from(format!(
+                            "event: error\ndata: {payload}\n\n"
+                        ))))
+                        .await;
+                    return;
+                }
+            },
             FromBridge::ProviderSse { payload, .. } => {
                 // Ring frames carry the provider's raw SSE text; the client
                 // contract is the inner `data:` JSON, not our envelope.
@@ -868,4 +955,65 @@ pub fn filter_model_request_tools(
         out.retain(|t| &t.name == forced);
     }
     out
+}
+
+#[cfg(test)]
+mod classify_tests {
+    use super::classify_provider_start;
+
+    fn body(status: &str, reason: &str, message: &str) -> String {
+        serde_json::json!({
+            "error": {
+                "code": 429,
+                "status": status,
+                "message": message,
+                "details": [{ "reason": reason }]
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn tos_403_renders_notice() {
+        let b = body("PERMISSION_DENIED", "TOS_VIOLATION", "disabled for violation");
+        let out = classify_provider_start(403, Some(&b), None).unwrap();
+        assert!(out.unwrap().contains("disabled for violation"));
+    }
+
+    #[test]
+    fn quota_429_is_retryable_with_hint() {
+        let b = body("RESOURCE_EXHAUSTED", "QUOTA_EXHAUSTED", "quota");
+        let err = classify_provider_start(429, Some(&b), Some(1500)).unwrap_err();
+        assert_eq!(err.status, 429);
+        assert_eq!(err.kind, "quota_exhausted");
+        assert_eq!(err.upstream_status, Some(429));
+    }
+
+    #[test]
+    fn capacity_429_maps_to_model_capacity() {
+        let b = body("RESOURCE_EXHAUSTED", "MODEL_CAPACITY_EXHAUSTED", "busy");
+        assert_eq!(
+            classify_provider_start(429, Some(&b), None).unwrap_err().kind,
+            "model_capacity_exhausted"
+        );
+    }
+
+    #[test]
+    fn bare_429_is_rate_limited() {
+        let err = classify_provider_start(429, None, None).unwrap_err();
+        assert_eq!(err.kind, "rate_limited_generic");
+        assert!(err.meta.is_none());
+    }
+
+    #[test]
+    fn unavailable_503_maps_upstream() {
+        let err = classify_provider_start(503, None, None).unwrap_err();
+        assert_eq!(err.status, 503);
+        assert_eq!(err.kind, "upstream_unavailable");
+    }
+
+    #[test]
+    fn status_under_400_is_informational() {
+        assert!(classify_provider_start(200, None, None).unwrap().is_none());
+    }
 }
