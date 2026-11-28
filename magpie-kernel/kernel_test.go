@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -20,15 +22,20 @@ func testKernel(t *testing.T, upstream http.Handler) *Kernel {
 	}
 	config := Config{
 		MagpieBaseURL:          server.URL,
-		RequestTimeoutSecond:   5,
 		AllowDynamicSlots:      true,
 		DefaultAllowedBackends: []string{"agy-cli", "claude"},
+		FirstByteTimeoutSecond: 1,
+		StreamIdleTimeoutSecond: 1,
+		QueueWaitSecond: 1,
+		DefaultMaxConcurrency: 2,
+		DefaultMaxRPM: 30,
+		DefaultQueueLimit: 16,
 		Slots: map[string]Slot{
 			"slot-agy":    {Backend: "agy-cli", Model: "agy-cli/gemini-4-flash"},
 			"slot-claude": {Backend: "claude", Model: "claude/claude-sonnet-5-5"},
 		},
 	}
-	return &Kernel{config: config, token: []byte("0123456789abcdefghijklmn"), apiKey: []byte("magpie-key"), client: server.Client(), baseURL: base}
+	return &Kernel{config: config, token: []byte("0123456789abcdefghijklmn"), apiKey: []byte("magpie-key"), client: server.Client(), baseURL: base, limiters: make(map[string]*upstreamLimiter)}
 }
 
 func TestDynamicSlotCanSelectOnlyConfiguredBackendFamilies(t *testing.T) {
@@ -64,7 +71,12 @@ func TestDynamicSlotCanSelectOnlyConfiguredBackendFamilies(t *testing.T) {
 func TestValidateConfigRequiresModelNamespaceToMatchBackend(t *testing.T) {
 	config := Config{
 		Socket:               "/run/kernel.sock",
-		RequestTimeoutSecond: 30,
+		FirstByteTimeoutSecond: 30,
+		StreamIdleTimeoutSecond: 30,
+		QueueWaitSecond: 10,
+		DefaultMaxConcurrency: 2,
+		DefaultMaxRPM: 30,
+		DefaultQueueLimit: 16,
 		MagpieBaseURL:        "http://magpie:3425",
 		Slots:                map[string]Slot{"slot-a": {Backend: "claude", Model: "agy-cli/gemini-4-flash"}},
 	}
@@ -108,6 +120,46 @@ func TestSlotSelectsFixedMagpieProviderAndPinsAccount(t *testing.T) {
 	}
 	if !strings.Contains(res.Body.String(), `"candidates":[]`) {
 		t.Fatalf("response was not forwarded: %s", res.Body.String())
+	}
+}
+
+func TestSlotPinsMagpieSessionAndPerSlotKey(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "gateway-key")
+	if err := os.WriteFile(keyPath, []byte("scoped-key\n"), 0o600); err != nil { t.Fatal(err) }
+	var gotKey, gotAccount, gotSession string
+	kernel := testKernel(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("X-Goog-Api-Key")
+		gotAccount = r.Header.Get("X-Magpie-Account")
+		gotSession = r.Header.Get("X-Magpie-Session")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"candidates":[]}`)
+	}))
+	kernel.config.MagpieAPIKeyFiles = map[string]string{"gemini-key": keyPath}
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/messages", strings.NewReader(`{"request_id":"request-fallback","stream":false,"body":{"conversation_id":"conversation-9","contents":[]}}`))
+	req.Header.Set("X-Kin-Internal-Token", string(kernel.token))
+	req.Header.Set("X-Craggemini-Account", "slot-agy")
+	req.Header.Set("X-Magpie-Account", "agy-owner@example.test")
+	req.Header.Set("X-Magpie-Key-ID", "gemini-key")
+	res := httptest.NewRecorder()
+	kernel.ServeHTTP(res, req)
+	if res.Code != http.StatusOK { t.Fatalf("status=%d body=%s", res.Code, res.Body.String()) }
+	if gotKey != "scoped-key" || gotAccount != "agy-owner@example.test" || gotSession != "conversation-9" {
+		t.Fatalf("key=%q account=%q session=%q", gotKey, gotAccount, gotSession)
+	}
+}
+
+func TestTruncatedSSEIsReportedAsErrorAfterPartialOutput(t *testing.T) {
+	kernel := testKernel(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}]}}]}\n\n")
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/messages", strings.NewReader(`{"request_id":"truncated","stream":true,"body":{"contents":[]}}`))
+	req.Header.Set("X-Kin-Internal-Token", string(kernel.token))
+	req.Header.Set("X-Craggemini-Account", "slot-agy")
+	res := httptest.NewRecorder()
+	kernel.ServeHTTP(res, req)
+	if !strings.Contains(res.Body.String(), "event: error") || !strings.Contains(res.Body.String(), "gemini_inference_invalid_output") {
+		t.Fatalf("truncated stream was not surfaced as an error: %s", res.Body.String())
 	}
 }
 

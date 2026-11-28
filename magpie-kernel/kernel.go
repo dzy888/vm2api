@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -49,7 +51,6 @@ type Slot struct {
 	MaxConcurrency  int      `json:"max_concurrency,omitempty"`
 	MaxRPM          int      `json:"max_rpm,omitempty"`
 	QueueLimit      int      `json:"queue_limit,omitempty"`
-	MagpieAPIKeyFile string  `json:"magpie_api_key_file,omitempty"`
 }
 
 type Envelope struct {
@@ -324,8 +325,9 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 	upstreamURL.RawQuery = query.Encode()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	limiterKey := slot.Backend + "|" + slot.Model + "|"
-	if slot.MagpieAccount != "" { limiterKey += strings.ToLower(slot.MagpieAccount) } else { limiterKey += "slot:" + slotID }
+	limiterKey := "slot:" + slotID
+	if slot.MagpieAccount != "" { limiterKey = "account:" + strings.ToLower(slot.MagpieAccount) }
+	if slot.MagpieKeyID != "" { limiterKey = "key:" + slot.MagpieKeyID } else { limiterKey += "|default-key" }
 	settings := k.slotLimiterSettings(slot)
 	if err := k.acquireUpstream(ctx, limiterKey, settings); err != nil {
 		status, code := http.StatusServiceUnavailable, "magpie_queue_timeout"
@@ -334,6 +336,7 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 		return
 	}
 	defer k.releaseUpstream(limiterKey)
+	started := time.Now()
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL.String(), bytes.NewReader(encoded))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "magpie_request_failed", "could not construct Magpie request")
@@ -358,6 +361,7 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 	if envelope.RequestID != "" { upstream.Header.Set("X-Request-Id", envelope.RequestID) }
 	response, err := k.client.Do(upstream)
 	if err != nil {
+		k.logTurn(envelope.RequestID, slotID, slot, 0, "magpie_unavailable", time.Since(started))
 		writeError(w, http.StatusBadGateway, "magpie_unavailable", "Magpie gateway request failed")
 		return
 	}
@@ -372,9 +376,11 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 	if !envelope.Stream {
 		payload, readErr := io.ReadAll(io.LimitReader(response.Body, maxRequestBytes+1))
 		if readErr != nil || len(payload) > maxRequestBytes {
+			k.logTurn(envelope.RequestID, slotID, slot, http.StatusBadGateway, "magpie_response_invalid", time.Since(started))
 			writeError(w, http.StatusBadGateway, "magpie_response_invalid", "Magpie returned an incomplete or oversized response")
 			return
 		}
+		k.logTurn(envelope.RequestID, slotID, slot, response.StatusCode, responseErrorCode(payload), time.Since(started))
 		w.WriteHeader(response.StatusCode)
 		_, _ = w.Write(payload)
 		return
@@ -417,16 +423,35 @@ func (k *Kernel) proxyTurn(w http.ResponseWriter, r *http.Request, slotID string
 					_, _ = w.Write(frame)
 					if canFlush { flusher.Flush() }
 				}
+				k.logTurn(envelope.RequestID, slotID, slot, http.StatusBadGateway, "magpie_stream_read_error", time.Since(started))
 				return
 			}
 			if !sawFinish && !sawError {
 				frame := []byte("event: error\ndata: {\"status\":502,\"error\":{\"code\":\"gemini_inference_invalid_output\",\"message\":\"Magpie stream ended before finishReason\"}}\n\n")
 				_, _ = w.Write(frame)
 				if canFlush { flusher.Flush() }
+				k.logTurn(envelope.RequestID, slotID, slot, http.StatusBadGateway, "gemini_inference_invalid_output", time.Since(started))
+			} else {
+				k.logTurn(envelope.RequestID, slotID, slot, response.StatusCode, "", time.Since(started))
 			}
 			return
 		}
 	}
+}
+
+func (k *Kernel) logTurn(requestID, slotID string, slot Slot, status int, code string, elapsed time.Duration) {
+	accountHash := ""
+	if slot.MagpieAccount != "" {
+		hash := sha256.Sum256([]byte(strings.ToLower(slot.MagpieAccount)))
+		accountHash = fmt.Sprintf("%x", hash[:8])
+	}
+	log.Printf("magpie_turn request_id=%q slot=%q backend=%q model=%q account_hash=%q status=%d error=%q duration_ms=%d", requestID, slotID, slot.Backend, slot.Model, accountHash, status, code, elapsed.Milliseconds())
+}
+
+func responseErrorCode(payload []byte) string {
+	var value struct { Error struct { Code string `json:"code"` } `json:"error"` }
+	if json.Unmarshal(payload, &value) == nil { return value.Error.Code }
+	return ""
 }
 
 var errQueueFull = errors.New("Magpie upstream queue is full")

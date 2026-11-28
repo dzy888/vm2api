@@ -3769,7 +3769,7 @@ class ResidentTestChatRun:
 class MagpieTestChatRun:
     """Asynchronous panel test turn using the selected Magpie slot route."""
 
-    def __init__(self, host, env, model, prompt, backend, magpie_model):
+    def __init__(self, host, env, model, prompt, backend, magpie_model, magpie_account=None, magpie_key_id=None):
         self.host = host
         self.model = model
         self._lock = threading.Lock()
@@ -3784,6 +3784,8 @@ class MagpieTestChatRun:
             },
             "magpie_backend": backend,
             "magpie_model": magpie_model,
+            "magpie_account": magpie_account,
+            "magpie_key_id": magpie_key_id,
             "entry": {},
         }
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -6776,17 +6778,23 @@ class Host:
         try:
             magpie_backend = body.get("magpie_backend")
             magpie_model = body.get("magpie_model")
+            magpie_account = body.get("magpie_account")
+            magpie_key_id = body.get("magpie_key_id")
             if magpie_backend is not None:
                 if (
                     magpie_backend not in MAGPIE_BACKENDS
                     or not isinstance(magpie_model, str)
                     or not MAGPIE_MODEL.fullmatch(magpie_model)
                     or not magpie_model.startswith(magpie_backend + "/")
+                    or (magpie_account is not None and (not isinstance(magpie_account, str) or not MAGPIE_ACCOUNT.fullmatch(magpie_account)))
+                    or (magpie_key_id is not None and (not isinstance(magpie_key_id, str) or not MAGPIE_KEY_ID.fullmatch(magpie_key_id)))
                     or not self.magpie_kernel_socket
                     or not self.magpie_kernel_token_file
                 ):
                     raise Failure(503, "magpie_kernel_unavailable")
-                process = MagpieTestChatRun(self, env, model, prompt, magpie_backend, magpie_model)
+                process = MagpieTestChatRun(
+                    self, env, model, prompt, magpie_backend, magpie_model, magpie_account, magpie_key_id
+                )
             elif key:
                 process = invocation_module().Invocation(
                     account_command(uid, "api-key-chat"),
