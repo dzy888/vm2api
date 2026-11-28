@@ -77,6 +77,8 @@ TOKEN_NAME = "antigravity-oauth-token"
 ACCESS_TOKEN = re.compile(r"[A-Za-z0-9._~+/-]{1,4096}={0,2}\Z")
 MAGPIE_BACKENDS = frozenset({"agy-cli", "claude"})
 MAGPIE_MODEL = re.compile(r"(agy-cli|claude)/[A-Za-z0-9][A-Za-z0-9._/-]{0,127}\Z")
+MAGPIE_ACCOUNT = re.compile(r"[\x21-\x7e]{1,256}\Z")
+MAGPIE_KEY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 CLI_SETTINGS = {"toolPermission": "strict", "useG1Credits": False}
 NATIVE_CLI_SETTINGS = {
     "allowNonWorkspaceAccess": True,
@@ -8826,12 +8828,16 @@ class Host:
         infer_body = body.get("body")
         magpie_backend = body.get("magpie_backend")
         magpie_model = body.get("magpie_model")
+        magpie_account = body.get("magpie_account")
+        magpie_key_id = body.get("magpie_key_id")
         if magpie_backend is not None:
             if (
                 magpie_backend not in MAGPIE_BACKENDS
                 or not isinstance(magpie_model, str)
                 or not MAGPIE_MODEL.fullmatch(magpie_model)
                 or not magpie_model.startswith(magpie_backend + "/")
+                or (magpie_account is not None and (not isinstance(magpie_account, str) or not MAGPIE_ACCOUNT.fullmatch(magpie_account)))
+                or (magpie_key_id is not None and (not isinstance(magpie_key_id, str) or not MAGPIE_KEY_ID.fullmatch(magpie_key_id)))
                 or not self.magpie_kernel_socket
                 or not self.magpie_kernel_token_file
             ):
@@ -8874,6 +8880,8 @@ class Host:
             "model": model,
             "magpie_backend": magpie_backend,
             "magpie_model": magpie_model,
+            "magpie_account": magpie_account,
+            "magpie_key_id": magpie_key_id,
             "started_at": now(),
             "finished_at": None,
             "error_code": None,
@@ -9009,6 +9017,8 @@ class Host:
                     "X-Craggemini-Account": identifier,
                     "X-Magpie-Backend": ctx["magpie_backend"],
                     "X-Magpie-Model": ctx["magpie_model"],
+                    **({"X-Magpie-Account": ctx["magpie_account"]} if ctx.get("magpie_account") else {}),
+                    **({"X-Magpie-Key-ID": ctx["magpie_key_id"]} if ctx.get("magpie_key_id") else {}),
                 },
                 request_body,
             )

@@ -796,6 +796,8 @@ function environmentView(
     schedule_level_mode: slotPref?.schedule_level_mode === 'manual' ? 'manual' : 'auto',
     inference_backend: slotPref?.inference_backend || 'native',
     magpie_model: slotPref?.magpie_model || null,
+    magpie_account: slotPref?.magpie_account || null,
+    magpie_key_id: slotPref?.magpie_key_id || null,
     ...(slotPref?.unschedulable
       ? {
           unschedulable: slotPref.unschedulable,
@@ -1795,6 +1797,8 @@ export function createGeminiPanelHandler({
         }
         if (Object.hasOwn(body, 'inference_backend')) prefPatch.inference_backend = body.inference_backend
         if (Object.hasOwn(body, 'magpie_model')) prefPatch.magpie_model = body.magpie_model
+        if (Object.hasOwn(body, 'magpie_account')) prefPatch.magpie_account = body.magpie_account
+        if (Object.hasOwn(body, 'magpie_key_id')) prefPatch.magpie_key_id = body.magpie_key_id
         if (Object.hasOwn(body, 'schedulable')) {
           if (typeof body.schedulable !== 'boolean') {
             return fail(400, 'invalid_request', 'schedulable 必须为布尔值')

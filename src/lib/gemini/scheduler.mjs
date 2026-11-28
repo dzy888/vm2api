@@ -1054,6 +1054,8 @@ export function createGeminiScheduler({
             schedule_level: pref?.schedule_level ?? 5,
             inference_backend: pref?.inference_backend || 'native',
             ...(pref?.magpie_model ? { magpie_model: pref.magpie_model } : {}),
+            ...(pref?.magpie_account ? { magpie_account: pref.magpie_account } : {}),
+            ...(pref?.magpie_key_id ? { magpie_key_id: pref.magpie_key_id } : {}),
             max_concurrency: normalizeConcurrency(
               environment.max_concurrency,
               currentPolicy().pool.max_concurrency_per_account,
@@ -1524,6 +1526,8 @@ export function createGeminiScheduler({
                       ? {
                           magpie_backend: account.inference_backend,
                           magpie_model: account.magpie_model,
+                          ...(account.magpie_account ? { magpie_account: account.magpie_account } : {}),
+                          ...(account.magpie_key_id ? { magpie_key_id: account.magpie_key_id } : {}),
                         }
                       : {}),
                     ...(gatewayPolicy ? { gateway_policy: gatewayPolicy } : {}),
@@ -1839,6 +1843,7 @@ export function createGeminiScheduler({
             const attemptLatencyMs = Math.max(0, failedAt - attemptStartedAt)
             const failure = known(error) || error
             const failureCode = failure?.code
+            const isMagpieBackend = account.inference_backend && account.inference_backend !== 'native'
             const cancelled = signal?.aborted || failure?.name === 'AbortError' || failureCode === 'ABORT_ERR'
             const attemptUpstreamStatus = Number.isInteger(failure?.upstreamStatus)
               ? failure.upstreamStatus
@@ -1894,6 +1899,7 @@ export function createGeminiScheduler({
                 (failureCode === 'gemini_inference_failed' &&
                   (attemptUpstreamStatus == null || attemptUpstreamStatus === 502)))
             const willMarkUnschedulable502 = Boolean(
+              !isMagpieBackend &&
               isUpstream502 &&
                 policy.failover.unschedulable_on_502 === true &&
                 typeof slotPrefs?.markUnschedulable === 'function',
@@ -1935,6 +1941,7 @@ export function createGeminiScheduler({
             // Same-account pre-commit 429 retry keeps the active Rust lease & SessionGate intact.
             const canRateLimitRetryOnce =
               !emittedOutput &&
+              !isMagpieBackend &&
               failureCode === 'gemini_quota_exhausted' &&
               failure?.contentRejected !== true &&
               selectionReason !== 'cooldown_fallback' &&
@@ -2039,6 +2046,7 @@ export function createGeminiScheduler({
 
             const willFailover =
               !emittedOutput &&
+              !isMagpieBackend &&
               failure?.contentRejected !== true &&
               FAILOVER_ERRORS.has(failureCode) &&
               (!isLocalBridgeDisconnect || localBridgeDisconnects < MAX_LOCAL_BRIDGE_DISCONNECT_ATTEMPTS) &&
@@ -2046,8 +2054,10 @@ export function createGeminiScheduler({
               accountSwitches < maxAccountSwitches &&
               attempts < maxAttempts
 
-            const errorScope = ACCOUNT_WIDE_COOLDOWN_ERRORS.has(failureCode)
-              ? 'account'
+            const errorScope = isMagpieBackend
+              ? 'request'
+              : ACCOUNT_WIDE_COOLDOWN_ERRORS.has(failureCode)
+                ? 'account'
               : failureCode === 'gemini_content_rejected'
                 ? 'request'
                 : failureCode === 'gemini_quota_exhausted'

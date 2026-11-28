@@ -157,6 +157,8 @@ export type GeminiEnvironment = {
   auth_method: 'oauth' | 'api_key'
   inference_backend?: 'native' | 'agy-cli' | 'claude'
   magpie_model?: string | null
+  magpie_account?: string | null
+  magpie_key_id?: string | null
   oauth_imported?: boolean
   kernel_version: string | null
   max_concurrency?: number
@@ -560,6 +562,8 @@ function GeminiBasicPrefs({
     'native' | 'agy-cli' | 'claude'
   >(environment.inference_backend || 'native')
   const [magpieModel, setMagpieModel] = useState(environment.magpie_model || '')
+  const [magpieAccount, setMagpieAccount] = useState(environment.magpie_account || '')
+  const [magpieKeyId, setMagpieKeyId] = useState(environment.magpie_key_id || '')
 
   useEffect(() => {
     setName(environment.name || '')
@@ -580,6 +584,8 @@ function GeminiBasicPrefs({
     )
     setInferenceBackend(environment.inference_backend || 'native')
     setMagpieModel(environment.magpie_model || '')
+    setMagpieAccount(environment.magpie_account || '')
+    setMagpieKeyId(environment.magpie_key_id || '')
   }, [
     environment.id,
     environment.name,
@@ -588,6 +594,8 @@ function GeminiBasicPrefs({
     environment.schedule_level_mode,
     environment.inference_backend,
     environment.magpie_model,
+    environment.magpie_account,
+    environment.magpie_key_id,
   ])
 
   const save = useGeminiMutation({
@@ -599,12 +607,16 @@ function GeminiBasicPrefs({
       }
       if (inferenceBackend === 'native') {
         payload.magpie_model = null
+        payload.magpie_account = null
+        payload.magpie_key_id = null
       } else {
         const model = magpieModel.trim()
         if (!model.startsWith(`${inferenceBackend}/`) || model.length > 140) {
           throw new Error(`Magpie 模型需填写 ${inferenceBackend}/<model>`)
         }
         payload.magpie_model = model
+        payload.magpie_account = magpieAccount.trim() || null
+        payload.magpie_key_id = magpieKeyId.trim() || null
       }
       if (concurrency.trim() !== '') {
         const parsed = Number(concurrency.trim())
@@ -687,22 +699,51 @@ function GeminiBasicPrefs({
           </select>
         </div>
         {inferenceBackend !== 'native' ? (
-          <div className='space-y-1.5'>
-            <Label htmlFor={`gemini-pref-magpie-model-${environment.id}`}>
-              Magpie 模型
-            </Label>
-            <Input
-              id={`gemini-pref-magpie-model-${environment.id}`}
-              value={magpieModel}
-              placeholder={
-                inferenceBackend === 'agy-cli'
-                  ? 'agy-cli/gemini-4-flash'
-                  : 'claude/claude-sonnet-5-5'
-              }
-              disabled={busy || save.isPending}
-              onChange={(event) => setMagpieModel(event.target.value)}
-            />
-          </div>
+          <>
+            <div className='space-y-1.5'>
+              <Label htmlFor={`gemini-pref-magpie-model-${environment.id}`}>
+                Magpie 模型
+              </Label>
+              <Input
+                id={`gemini-pref-magpie-model-${environment.id}`}
+                value={magpieModel}
+                placeholder={
+                  inferenceBackend === 'agy-cli'
+                    ? 'agy-cli/gemini-4-flash'
+                    : 'claude/claude-sonnet-5-5'
+                }
+                disabled={busy || save.isPending}
+                onChange={(event) => setMagpieModel(event.target.value)}
+              />
+            </div>
+            <div className='space-y-1.5'>
+              <Label htmlFor={`gemini-pref-magpie-account-${environment.id}`}>
+                Magpie 账号 Pin
+              </Label>
+              <Input
+                id={`gemini-pref-magpie-account-${environment.id}`}
+                value={magpieAccount}
+                placeholder='留空时由 Magpie 路由'
+                disabled={busy || save.isPending}
+                onChange={(event) => setMagpieAccount(event.target.value)}
+              />
+            </div>
+            <div className='space-y-1.5'>
+              <Label htmlFor={`gemini-pref-magpie-key-${environment.id}`}>
+                Magpie gateway key ID
+              </Label>
+              <Input
+                id={`gemini-pref-magpie-key-${environment.id}`}
+                value={magpieKeyId}
+                placeholder='留空使用默认 key'
+                disabled={busy || save.isPending}
+                onChange={(event) => setMagpieKeyId(event.target.value)}
+              />
+            </div>
+            <p className='text-xs text-muted-foreground sm:col-span-2'>
+              vm2api 绑定代理不作用于 Magpie 路由；请在 Magpie provider 的 Proxy / Account Proxies 中配置出口。Pin 会固定 Magpie 上游账号并关闭该请求的账号故障转移。
+            </p>
+          </>
         ) : null}
       </div>
       <div className='space-y-1.5'>

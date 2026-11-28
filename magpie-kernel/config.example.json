@@ -3,7 +3,16 @@
   "internal_token_file": "/run/secrets/internal-token",
   "magpie_base_url": "http://magpie:3425",
   "magpie_api_key_file": "/run/secrets/gateway-key",
-  "request_timeout_seconds": 300,
+  "magpie_api_key_files": {
+    "gemini-slots": "/run/secrets/gemini-slots-key",
+    "claude-slots": "/run/secrets/claude-slots-key"
+  },
+  "first_byte_timeout_seconds": 90,
+  "stream_idle_timeout_seconds": 120,
+  "queue_wait_seconds": 30,
+  "default_max_concurrency": 2,
+  "default_max_rpm": 30,
+  "default_queue_limit": 16,
   "allow_dynamic_slots": true,
   "default_allowed_backends": ["agy-cli", "claude"],
   "slots": {

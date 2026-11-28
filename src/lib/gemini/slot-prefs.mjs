@@ -16,6 +16,8 @@ export const DEFAULT_GEMINI_SCHEDULE_LEVEL = 5
 const UNSCHEDULABLE_REASON_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/
 const INFERENCE_BACKENDS = new Set(['native', 'agy-cli', 'claude'])
 const MAGPIE_MODEL_RE = /^(agy-cli|claude)\/[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/
+const MAGPIE_ACCOUNT_RE = /^[\x21-\x7e]{1,256}$/
+const MAGPIE_KEY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 
 export function parseGeminiScheduleLevel(value) {
   if (value === null || value === '' || value === 'auto') return { ok: true, value: null }
@@ -64,6 +66,10 @@ function sanitizeEntry(raw) {
     if (MAGPIE_MODEL_RE.test(model) && model.startsWith(`${backend}/`)) {
       out.inference_backend = backend
       out.magpie_model = model
+      if (typeof raw.magpie_account === 'string' && MAGPIE_ACCOUNT_RE.test(raw.magpie_account)) {
+        out.magpie_account = raw.magpie_account
+      }
+      if (typeof raw.magpie_key_id === 'string' && MAGPIE_KEY_ID_RE.test(raw.magpie_key_id)) out.magpie_key_id = raw.magpie_key_id
     }
   }
   const unsched = sanitizeUnschedulable(raw.unschedulable)
@@ -100,6 +106,8 @@ export function createGeminiSlotPrefs({ settingsRepo = null, now = () => Date.no
         display_name: null,
         inference_backend: 'native',
         magpie_model: null,
+        magpie_account: null,
+        magpie_key_id: null,
         unschedulable: null,
       }
     const raw = sanitizeEntry(readAll()[envId])
@@ -109,6 +117,8 @@ export function createGeminiSlotPrefs({ settingsRepo = null, now = () => Date.no
       display_name: raw.display_name ?? null,
       inference_backend: raw.inference_backend ?? 'native',
       magpie_model: raw.magpie_model ?? null,
+      magpie_account: raw.magpie_account ?? null,
+      magpie_key_id: raw.magpie_key_id ?? null,
       unschedulable: raw.unschedulable ?? null,
     }
   }
@@ -122,6 +132,8 @@ export function createGeminiSlotPrefs({ settingsRepo = null, now = () => Date.no
       display_name: raw.display_name,
       inference_backend: raw.inference_backend,
       magpie_model: raw.magpie_model,
+      magpie_account: raw.magpie_account,
+      magpie_key_id: raw.magpie_key_id,
       unschedulable: raw.unschedulable,
       unschedulable_reason: raw.unschedulable?.reason ?? null,
       unschedulable_detail: raw.unschedulable?.detail ?? null,
@@ -189,6 +201,8 @@ export function createGeminiSlotPrefs({ settingsRepo = null, now = () => Date.no
       if (backend === 'native') {
         delete current.inference_backend
         delete current.magpie_model
+        delete current.magpie_account
+        delete current.magpie_key_id
       } else {
         const model = Object.hasOwn(update, 'magpie_model') ? update.magpie_model : current.magpie_model
         const normalized = typeof model === 'string' ? model.trim() : ''
@@ -200,6 +214,30 @@ export function createGeminiSlotPrefs({ settingsRepo = null, now = () => Date.no
         }
         current.inference_backend = backend
         current.magpie_model = normalized
+        if (Object.hasOwn(update, 'magpie_account')) {
+          if (update.magpie_account == null || update.magpie_account === '') {
+            delete current.magpie_account
+          } else if (typeof update.magpie_account === 'string' && MAGPIE_ACCOUNT_RE.test(update.magpie_account)) {
+            current.magpie_account = update.magpie_account
+          } else {
+            const err = new Error('Magpie 账号 pin 必须为 1 到 256 个可打印 ASCII 字符')
+            err.code = 'gemini_invalid_magpie_account'
+            err.status = 400
+            throw err
+          }
+        }
+        if (Object.hasOwn(update, 'magpie_key_id')) {
+          if (update.magpie_key_id == null || update.magpie_key_id === '') {
+            delete current.magpie_key_id
+          } else if (typeof update.magpie_key_id === 'string' && MAGPIE_KEY_ID_RE.test(update.magpie_key_id)) {
+            current.magpie_key_id = update.magpie_key_id
+          } else {
+            const err = new Error('Magpie gateway key ID 格式无效')
+            err.code = 'gemini_invalid_magpie_key_id'
+            err.status = 400
+            throw err
+          }
+        }
       }
     }
     if (Object.keys(current).length > 0) store[envId] = current
