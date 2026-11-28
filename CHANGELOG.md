@@ -1,5 +1,75 @@
 # Changelog
 
+## 1.4.248 — 2026-11-28 · 面板「席位」统一更名为「执行位」
+
+- **面板文案：`session_slots`「席位」统一更名为「执行位」（#2043，拆自 #1970）**：
+  - `web/src/features/vm/{list-page,vm-detail-card,vm-list-table,vm-rack,vm-rack-blade,vm-scheduling}.tsx` 与 `web/src/features/settings/pool-pane.tsx` 中面板可见的「席位 / 席位上限 / 席位占用 / 席位与流量」改为「执行位」口径，并澄清「物理执行位」与「根会话（主会话）数」的说明；仅文案变更，不改任何接口字段与调度行为
+- 测试对齐（#2050）：`web/src/features/vm/vm-list-table.test.tsx` 的 403 文案断言对齐 `gemini-account-status` 现行「Google 403：地区或账号受限」，修复任何改动 `web/` 的 PR 在 `ci / web tests and build` 被基线断言卡住的问题；纯测试改动，无用户可见变化
+- 部署说明：本次改动零数据库迁移、零后端运行时变更，仅前端静态资源与文案；升级无需额外操作。
+
+## 1.4.247 — 2026-11-28 · API 端点默认 `body_policy` 切为 `caller` 并修复 `/#/api` 开关即时持久化
+
+- **API 端点 `body_policy` 默认透传调用方原始正文并修复 `/#/api` 开关持久化（#2045）**：
+  - 后端 `src/lib/admin/api-endpoints.mjs`（`BODY_POLICIES` 顺位调整为 `['caller', 'persona']`）与 `src/lib/db/repos/api-endpoints-repo.mjs`（`rowEp` / `_epValues` 缺省回退）全链路将默认 `body_policy` 由 `'persona'` 切为 `'caller'`（透传调用方原始请求体，不额外注入项目 persona/system；`'persona'` 保留为显式可选）；新增 SQLite 迁移 `src/lib/db/migrations/073_api_endpoint_body_policy_default.sql` 与 PostgreSQL 迁移 `src/lib/db/pg/pg-migrations/010_api_endpoint_body_policy_default.sql`，在线幂等设置列默认值（PG `SET DEFAULT 'caller'`）并将既有 `'persona'` 行自动回填为 `'caller'`（保留 `CHECK` 约束）。
+  - 前端 `web/src/features/anthropic/{index.tsx,endpoint-save.ts}` 与 `web/src/types/panel-api-endpoints.ts` 将新建草稿与 `asBodyPolicy` 默认切为 `'caller'`；已保存端点在 `/#/api` 切换「转发调用方原始正文」开关时即时下发单字段 `PATCH /api/panel/api-endpoints/:id`（`{ body_policy }`），同步更新本地 `stored.bodyPolicy` 与 React Query 缓存（`patchCachedApiEndpoint`），失败时自动回滚并提示，且与完整保存回调保持一致；补齐 `test/unit/{anthropic-console,api-endpoints,database,scheduler-m0-migrations}.test.mjs` 与 `web/src/features/anthropic/endpoint-save.test.ts`。
+- 部署说明：本次改动新增 **SQLite 迁移 `073`** 与 **PostgreSQL 迁移 `010`**（在线幂等，启动控制面时自动执行），升级后会将数据库 `api_endpoints` 表中既有 `body_policy = 'persona'` 的端点行自动回填为 `'caller'`（如需项目协议注入，升级后可在 `/#/api` 手动切回 `'persona'`）；零 `deploy/payload.json`、`docker/`、`scripts/gemini-host.py`、`protofront` 或 Rust `kin-scheduler` 变更。
+
+## 1.4.246 — 2026-11-28 · KVM 共享 Store CRAG 原子同步与回滚自愈、账号预热爬坡引擎（opt-in / M3 / PG 18）与 CRAG `3.1.26`/`3.1.27` 热修载荷钉选
+
+- **KVM `crag-debian13` 共享 Store CRAG 版本同步与回滚自愈（#2040）**：
+  - `src/lib/vm/wrap-cli-runtime.mjs` 新增 `syncSharedStoreCrag()`、`resolveSharedStoreCragCurrentDir()` 与 `sharedStoreCragWouldChange()`：先经 `verifyCragV2Tree()` 严格验签，再写入不可变版本目录 `store/crag/versions/<version>`（同版本重构建使用 `<version>-<sha8>`，不覆写运行中 KVM 正在 `mmap` 的旧二进制）并原子切换 `current`/`previous` 相对软链，接入 `materializeCragV2()` 与 `inspectKernelChanges()`。
+  - `src/lib/vm/vm-runtime.mjs` 在 `buildKvmRunArgs()`、`cragCustomOsDockerMountArgs()` 及 `startVmRuntimeAdmitted()` `preserveCrag` 路径自动同步/补齐共享 store CRAG；`src/lib/vm/{kernel-install,crag-license}.mjs` 与 `src/lib/admin/kernel-catalog.mjs` 在 `restoreCragRollback()` 原子回切 `store/crag/current` 并为 `crag-debian13` 槽位透传 `allowUnbundledStore` / `sharedClaudeStoreRoot`；`src/lib/oauth/claude-auth-login.mjs` 解析真实版本目录避免传软链触发 `crag_v2_symlink`；新增 `test/unit/shared-store-crag-sync.test.mjs`。
+- **账号预热爬坡引擎落地与 M3 / PG 18 全链路对齐（#1970）**：
+  - 新增 `src/lib/pool/{account-warmup,warmup-monitor}.mjs` 与 `test/unit/{account-warmup,warmup-monitor}.test.mjs`，接入 `src/lib/admin/{panel-api,panel-routes,routing-runtime}.mjs`、`src/lib/oauth/import-commit.mjs`、`src/lib/pool/account-quota.mjs` 与 `src/server.mjs`：默认 `enabled: false`（opt-in），支持新导入/换绑账号自动启动预热并在稳定达标后自动毕业，保留人工覆写优先（operator-wins）生命周期。
+  - 端到端对齐 M3 Rust `kin-scheduler` 与 PostgreSQL 18：启动与毕业均触发 `schedulerRuntime.syncConfigNow()` 同步 `max_rpm`，毕业经 `inheritVmScheduling(id, { rpm: true })` 恢复分档/默认限流并清除 `rpm_override=0`；日志查询改用 ISO-8601 字符串比较（兼容 PG 18）并记录结构化告警；基于 `scheduler_pools`/`scheduler_pool_members` 并在无自定义 Claude 池时覆盖默认虚拟池；统一 `withVmLock(vmPath)` 完整路径锁并接入 `stopLeaderJobs()` 与备份恢复/配置热更新生命周期。
+- **CRAG `3.1.26` / `3.1.27` 热修载荷重新钉选（#2042，Fixes #2017）**：
+  - `deploy/payload.json` 与 `src/lib/admin/kernel-catalog.mjs`（`CRAG_PINNED_RELEASES`）同步包含 CRAG V4 `tool_use` `handoff_complete` 热修的重传签名载荷资产大小、SHA256 与版本说明：`payload-2026.11.28-crag-3.1.27`（`crag-v2` `aa9c9c6d…`、`crag-v2.payload.enc` `c9ffa0d1…`、`manifest.json` `6b8ad1e8…`、`crag-v2-licensed-amd64.tar.gz` `168930962`/`31d94d34…`）与 `payload-2026.11.28-crag-3.1.26`（`manifest.json` `e8a6cd7e…`、`crag-v2-licensed-amd64.tar.gz` `168863735`/`cad5fe5e…`；零密钥轮换，沿用生产公钥 `9dbb4bc2…` 与载荷密钥 `835451e2…`），并同步恢复 `v1.4.245` 因远端 prerelease 更新中断的 `amd64` 控制面镜像与多架构 `latest` 发布。
+- 部署说明：本次改动零新增数据库迁移，零 `docker/`、`scripts/gemini-host.py`、`protofront` 或 Rust `kin-scheduler` 变更；`v1.4.246` 完整发布 `amd64` + `arm64` 多架构控制面镜像并更新 `latest` tag，升级后自动同步热修版 CRAG `3.1.27` 载荷（面板同时支持 `3.1.26` 热修版钉选/回滚）并经 `#2040` 原子更新 `crag-debian13` KVM 共享 store `store/crag/current`；账号预热默认关闭（`routing.warmup.enabled = false`），按需开启。
+
+## 1.4.245 — 2026-11-28 · 统一 System Prompt `PromptSpec v1` 与 CRAG `3.1.27` 载荷钉选、严格官方 CC 校验、面板凭据 SSOT、多模型健康探测及 Gemini/KVM 多项加固
+
+- **统一 System Prompt `PromptSpec v1`、载荷钉选与 CRAG 缓存/前缀修复（#2026、#2031、#2032）**：
+  - **`PromptSpec v1` 跨仓统一与载荷钉选（#2026）**：新增 `src/lib/identity/system-prompt-spec.mjs`，重构 `src/lib/identity/{crs-persona,persona-template}.mjs`、`src/lib/protocol/{crag-print-prompt,crag-whitelist,handle-protocol,kernel-request,outbound-attempt,pool-prompt-policy}.mjs`、`src/lib/admin/{kernel-catalog,panel-api,routing-runtime,vm-test-chat}.mjs`、`src/lib/scheduler/scheduler-runtime.mjs`、`src/lib/transport/{go-worker-client,proto-front-client}.mjs`、`src/lib/vm/slot-engine.mjs`、`src/config/routing.json` 及前端 `web/src/features/{pools,settings,system,vm}/*`（移除旧 `web/src/features/system/crag-print-panel.tsx`），并更新 `docs/PROTOCOL.md` / `docs/PANEL_API.md`；`deploy/payload.json` 与 `deploy/arm64-cli.json` 同步钉选 `payload-2026.11.28-system-prompt`（`kin-kernel` 与 `cli-node`）及 `payload-2026.11.28-crag-3.1.27`（零密钥轮换）。
+  - **CRAG V3 尾部带缓存系统消息角色稳定（#2031，Fixes #2007）**：`src/lib/protocol/crag-print-prompt.mjs` 在 `assistant` 后存在带 `cache_control` 的 `system` 且后续为普通 `user` 时按 `flush()` 保持跨轮角色稳定，避免前缀缓存失效，保留 `tool_result` 续传与 CRAG V4 旁路。
+  - **旧版 CRAG V4 4-block 缓存预算滚动兜底（#2032，Fixes #2016）**：`src/lib/protocol/crag-whitelist.mjs` 与 `src/lib/protocol/crag-print-prompt.mjs` 对 CRAG `3.1.27+`（`prompt_spec_v1`）保持零预砍、完整保留 4 个调用方断点，仅对未升级的旧版 CRAG `<= 3.1.26`（`!prompt_spec_v1` + `official_full`）预留 2 个模板断点，保障滚动升级窗口不触发 `Found 6` 400。
+- **严格官方 Claude Code 校验闭环与多模型健康缓存探测（#2036、#2035）**：
+  - **严格官方 Claude Code 校验与绕过收口（#2036）**：新增 `src/lib/identity/official-cc-verifier.mjs` 及 Go `protofront/internal/detect/official_cc.go`（同步 `protofront/internal/detect/detect.go`、`src/lib/identity/{claude-code-only,crs-headers,crs-persona}.mjs`、`src/lib/pool/api-protocol.mjs`、`src/lib/protocol/{anthropic-policy,handle-protocol,outbound-attempt,third-party-system,user-count-tokens,warmup-intercept}.mjs`、`src/lib/admin/health-probe.mjs`、`src/lib/transport/go-worker-client.mjs` 与 `web/src/features/settings/protocol-pane.tsx`），统一 Node 与 `protofront` 双侧官方信封校验并在直连 Tier 2e 辅助分支强制校验锚定官方 system 前缀。
+  - **多模型健康缓存探测（#2035）**：`src/lib/admin/{health-probe,routing-runtime,panel-routes}.mjs`、`src/lib/protocol/handle-protocol.mjs`、`src/server.mjs`、`src/config/routing.json` 与 `web/src/features/settings/{health-pane.tsx,queries.ts}` 新增 Anthropic / OpenAI / Google 三平台独立多模型健康探测调度、按规范模型键隔离的缓存快照与面板设置，并接入 `stopLeaderJobs()` 生命周期管理。
+- **面板凭据单一真源（SSOT）、ARM64 CC 引导防护与 KVM SMBIOS 转义（#2028、#2033、#2037）**：
+  - **面板凭据 SSOT 与单向只读槽位投影（#2028）**：`src/lib/oauth/{oauth-credentials,official-cc-bootstrap}.mjs`、`src/lib/transport/{slot-oauth,go-worker-client,rust-kernel-supervisor}.mjs`、`src/lib/admin/{panel-api,panel-routes}.mjs`、`src/lib/cluster/{remote-fs,remote-slot-files}.mjs`、`src/lib/pool/pool-scheduler.mjs`、`src/lib/vm/slot-host.mjs`、`docker/kin-kvm/guest/kin-slot-agent`、`worker/internal/oauthcmd/oauthcmd.go` 与 `docs/OAUTH.md` 将凭据单一真源收口至控制面并单向只读投影至槽位；宿主侧加固 `test_endpoints`/URL 覆写仅由 `KIN_WORKER_TEST_ENDPOINTS=1` 门控并经 `lstat`+`O_NOFOLLOW` 校验 `worker.json`，新增 `assertSafeSlotCredentialPaths` 拒绝 `.claude`/`credentials.json` 符号链接穿越（保留 `.credentials.json` 相对软链契约）。
+  - **ARM64 官方 CC 引导防护（#2033）**：`src/lib/oauth/official-cc-bootstrap.mjs` 与 `src/lib/vm/wrap-cli-runtime.mjs` 补齐跨架构仿真检测、core dump 抑制与清晰退出码错误透传。
+  - **KVM SMBIOS 逗号转义与历史自愈（#2037）**：`src/lib/identity/kvm-fingerprint-uuid.mjs` 在 `joinSmbios` 中将 `,` 转义为 `,,`，并通过 `coalesceBrokenCommaParts` 幂等自愈历史未转义字段。
+- **Gemini 沙箱 CA 挂载、`gemini-4-neon` `xhigh` 与 Schema / 局部 502 隔离（#2029、#2030、#2034）**：
+  - **Gemini bwrap 沙箱 CA 证书只读挂载（#2029）**：`scripts/gemini-host.py` 在 `Agy.start` 与 `CragDaemonShard._start` 联网沙箱中以 `--ro-bind-try` 只读挂载各发行版公开 CA 证书信任库（排除私钥目录），并补齐 `test/unit/gemini-sandbox-apparmor.py`。
+  - **`gemini-4-neon` 保留 `xhigh` `thinkingLevel`（#2030，Fixes #1975）**：`src/lib/gemini/model-catalog.mjs` 与 `src/lib/protocol/gemini-convert.mjs` 放行 `gemini-4-neon` 的 `xhigh` 思考档位，其余模型维持 clamp 至 `high`。
+  - **剥离非 RE2 工具 Schema 正则与局部 `bridge_disconnected` 502 隔离（#2034，Fixes #1985）**：`src/lib/protocol/gemini-convert.mjs` 新增 `isRe2CompatibleRegex` 过滤不兼容 RE2 的 Schema `pattern` 约束（保留同名属性字段）；`src/lib/gemini/{direct-client,scheduler}.mjs` 将无 `upstream_status` 的局部 `bridge_disconnected` 502 隔离为单请求最多尝试 2 槽且不标永久不可调度，真实上游 502 维持原判定。
+- 部署说明：本次改动零新增数据库迁移；`deploy/payload.json` 与 `deploy/arm64-cli.json` 已升级至 `payload-2026.11.28-system-prompt`（`kin-kernel` / `cli-node`）与 `payload-2026.11.28-crag-3.1.27`（零密钥轮换），升级控制面后将同步更新槽位内核 / `wrap-cli`（滚动窗口内未升级的旧版 CRAG `<= 3.1.26` 槽位受 `#2032` 兜底兼容）；`protofront` Go 网关（`#2036`）由控制面 Docker 镜像现编（裸机部署需同步重编），`worker/internal/oauthcmd`（`#2028`）向后兼容现役 `bin/kin-worker`；因涉及 `docker/kin-kvm/guest/kin-slot-agent`（`#2028`），合入 `main` 后将自动触发 `guest-images` 工作流刷新 `kin-kvm-*` 镜像；Gemini 宿主机需同步 `scripts/gemini-host.py`（`#2029`）并重启 `vm2api-gemini` 与 `vm2api`。
+
+## 1.4.244 — 2026-11-28 · Codex 软限与临时停车状态接入 Rust 调度准入、存量 KVM 9p 挂载自动升级 `cache=none` 与跨类定时测试同步提示修正
+
+- **Codex 软限与临时停车状态接入 Rust `kin-scheduler` 准入（#2009，Refs #1874）**：
+  - `scheduler/crates/scheduler-proto/src/{config,ipc,lib,serde_patch}.rs` 新增 `CodexQuotaPolicy`、`ConfigSnapshot.codex_quota`、`BackendNodeConfig.temp_unschedulable_{until_ms,reason}` 与 `serde_patch::double_option`（并为 `NodeTelemetryUpdate` 的 3 个 `double_option` 字段补齐 `skip_serializing_if = "Option::is_none"`，防止局部遥测序列化为 JSON `null` 误清空停车状态）。
+  - `scheduler/crates/scheduler-core/src/{admission,node_state}.rs` 与 `src/lib/scheduler/scheduler-runtime.mjs` 将 `routing.codex.quota` 软限接入 Rust `codex_vm` 准入（Claude 槽维持既有 95% 门禁）；`temp_unschedulable_*` 经配置快照（冷启动 fail-closed）与实时遥测同步，清除态显式发送 `temp_unschedulable_until_ms: 0` / `reason: null` 并置 `temp_park_live_authoritative` 避免回落旧快照；补齐 `scheduler/crates/scheduler-core/tests/admission_codex_quota_tests.rs`、`test/unit/scheduler-codex-quota-snapshot.test.mjs` 及 `scheduler-proto`/`scheduler-core`/`scheduler-daemon` 回归测试。
+- **存量 legacy KVM 槽位 `kin-guest-setup` 9p 挂载自动升级 `cache=none`（#2018，Refs #1877）**：
+  - `docker/kin-kvm/guest/kin-crag-apparmor` 新增 `upgrade_guest_9p_cache`，在每次内核启动前幂等改写 `#1924` 前存量 KVM 盘内 `/usr/local/sbin/kin-guest-setup` 的 `kinhome`（`/home/kincli`）与 `kinclaude`（`/home/kincli/.claude`）两行 9p 挂载参数，由 `mmap` 原子升级为 `none`（保留 `0755` 权限，下次槽位 stop/start 或 recover 生效，缓解 v9fs getattr writeback 僵尸进程）；缺失文件返回 `no-guest-setup`，符号链接或手工编辑/重复行返回 `operator-managed` 且零写盘，不影响 `crag-debian13` custom-erofs 槽位；`test/unit/kvm-crag-apparmor.test.mjs` 补充覆盖单测。
+- **定时测试「同步到全部槽」确认框异类槽文案修正（#2008，Refs #1874）**：
+  - `web/src/features/vm/vm-test-schedule.tsx` 更新「同步到全部槽？」`AlertDialog` 说明文案，如实告知另一类槽（Claude/Codex 不同）保留自己的模型与 Prompt，但仍同步开关、时间及本表单显式提供的运行模式与自动续热，与 `src/lib/admin/vm-test-schedule.mjs` 及 `docs/PANEL_API.md` 一致。
+- 部署说明：本次改动零新增数据库迁移，零 `deploy/payload.json`、Gemini 宿主脚本或 `bin/` / `share/wrap-cli` 载荷变更；预期 **`SLOT_SYNC=skip`**，无需重启 `vm2api-gemini`。Rust `kin-scheduler` 由 `Dockerfile`（amd64）与 `deploy/Dockerfile.arm64-control`（arm64）从源码现编并经容器入口自动同步（不随 `deploy/payload.json` 或 GitHub Release 附件分发），**裸机 Node / `systemd` 宿主机重启前须先执行 `npm run build:scheduler`（需 Rust / Cargo 1.86+）** 编译安装新版 `bin/kin-scheduler`。控制面更新并重启后，`src/lib/vm/kvm-crag-apparmor.mjs` 会在下次 legacy KVM 槽启动内核前自动下发新版 `docker/kin-kvm/guest/kin-crag-apparmor` 改写旧盘脚本，存量 legacy KVM 槽待下次 stop/start 或 recover 即生效；因涉及 `docker/kin-kvm/**`，合入 `main` 后将自动触发 `guest-images` 工作流同步刷新 `kin-kvm-*` 镜像。
+
+## 1.4.243 — 2026-11-28 · 修复 CRAG 商城直充刷新与 CRAGGemini 购买、订单台账/认领、身份迁移/重建、续费自愈及双产品订阅工作台
+
+- **CRAG 商城代理双产品参数化与直充立即生效修复（#2022）**：
+  - `src/lib/crag-shop/shop-supplier.mjs` 支持按 `pathPrefix` 参数化商城上游路由（支持 Claude CRAG 根路径与 CRAGGemini `/gemini` 路径前缀）；`src/lib/crag-shop/routes.mjs` 参数化 `ownerPrefix`、`catalogCacheKey`、`orderPathPattern`、`deviceEnabled` 并导出 `createGeminiCragShopHandler`，新增 `/api/panel/gemini/crag-shop/{catalog,orders,orders/:id,orders/:id/refresh,orders/:id/cancel}` 完整代理路由，与 Claude CRAG 目录缓存、过期轮询及激活轮询严格隔离。
+  - 修复 `syncDirectCredit()` 在订单支付后直接入账时仅调只读 `status()` 未触发远端权威刷新导致页面不立即显示新额度的问题，改为调用 `subscription.status({ sync: true })` 主动同步。
+  - `src/lib/admin/panel-routes.mjs`、`src/lib/admin/panel-acl.mjs` 与 `src/server.mjs` 补齐 Gemini 商城权限映射、路由挂载与 Leader 定时轮询。
+- **CRAGGemini 宿主订阅订单台账、认领、迁移、身份重建与 CSRF 安全加固（#2022）**：
+  - `src/lib/gemini/subscription.mjs` 修复 `migrate` 请求体携带多余 `host_id` 触发权威端 `#[serde(deny_unknown_fields)]` 拒绝的问题；新增 `purchaseDeviceId`、`orders()`、`claimByOrder()`（遇到 `host_id_collision` 自动触发一次身份重建并重领）、`migrate()`、`rebuildIdentity()`、`renewalProof()`、`redeemRenewal()` 与 `callAuthorityWithRecovery()` 结构化错误透传（含 `details: { recovery, authority_request_id }`）。
+  - `src/lib/gemini/routes.mjs` 新增 `GET /api/panel/gemini/crag-subscription/orders`、`POST .../claim-by-order`、`POST .../migrate`、`POST .../rebuild-identity`，并将非 master 调用的 `sameOriginPost` CSRF 校验收口为无条件强制执行（不再依赖 `publicBaseUrl` 是否配置）。
+- **前端双产品 CRAG 订阅与购买/兑换工作台（#2022）**：
+  - `web/src/features/crag/crag-shop.tsx` 与 `web/src/routes/_authenticated/crag-subscription.tsx` 新增 `Claude CRAG` / `CRAGGemini` 双产品切换（支持 `?product=craggemini` 深链）、`GeminiHostSummary`、`GeminiHostOverview`、`GeminiSubscriptionView` 及主览回退展示；`web/src/features/import/gemini-environments.tsx` 增加直达购买 CRAGGemini 订阅入口。
+  - `web/src/features/crag/{crag-commerce,crag-cloud-orders,gemini-redeem-dialog}.tsx` 与 `web/src/features/import/gemini-environments-queries.ts` 补齐 `GeminiHostStatus`、按产品隔离的查询键、自定义报价端点、CRAGGemini 云端订单认领与主机身份冲突一键重建交互。
+- 部署说明：本次改动仅涉及控制面（`src/`）与前端（`web/src/`），零数据库迁移，零 `deploy/payload.json`、Rust `kin-scheduler`、Gemini 宿主脚本或 `bin/` / `share/wrap-cli` 变更。预期 **`SLOT_SYNC=skip`**，无需重启既有 Claude/Codex 槽位或 `vm2api-gemini`，更新并重启 `vm2api` 一次即可生效；如需启用 CRAGGemini 在线购买，需在商城侧部署支持 `CRAG_SHOP_PATH_PREFIX=/gemini` 与 `CRAG_SHOP_PRODUCT=craggemini` 的 `crag-shop` 实例并将 `/gemini/shop/*` 路由至该实例。
+
 ## 1.4.242 — 2026-11-28 · WU-3 物理机深度去虚拟化、每槽随机用户名与实时时区同步、钉死版 Linux `6.12.118-1` `prctl()` 写一次自定义内核轨与新版 `kin-computer` / `crag-debian13` 1.1.0 载荷钉选
 
 - **WU-3 Phase A — 物理机去虚拟化、每槽随机 Linux 用户名与实时时区/预设同步（#2015）**：
