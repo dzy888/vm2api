@@ -1691,6 +1691,47 @@ PY
   else
     ok "Gemini 控制 socket 已就绪；签名载荷与 CLI 出口状态请在面板检查"
   fi
+
+  # 面板里选择过自研内核时，签名载荷升级后要把它切回来，否则升级会覆盖自研包。
+  local mode_file="${INSTALL_DIR}/share/gemini/kernel-mode" self_dir="${INSTALL_DIR}/share/gemini/self"
+  if [ "$(cat -- "$mode_file" 2>/dev/null)" = self ] && [ -f "${self_dir}/manifest.json" ] &&
+    [ -f "${self_dir}/crag-license-public.pem" ] && [ -d "$current" ] && [ ! -L "$current" ]; then
+    local staged_self
+    staged_self="$(mktemp -d "${INSTALL_DIR}/share/gemini/.self-payload.XXXXXX")" || return 1
+    rmdir "$staged_self" || return 1
+    if node "${staging}/scripts/install-gemini-payload.mjs" \
+      --source "$self_dir" --public-key "${self_dir}/crag-license-public.pem" --dest "$staged_self"; then
+      systemctl stop vm2api-gemini.service 2>/dev/null || true
+      if python3 - "$staged_self" "$current" <<'SELF'
+import ctypes, os, sys
+from pathlib import Path
+src, dst = Path(sys.argv[1]), Path(sys.argv[2])
+libc = ctypes.CDLL("libc.so.6", use_errno=True)
+AT_FDCWD = -100
+RENAME_EXCHANGE = 2
+rc = libc.renameat2(AT_FDCWD, os.fsencode(src), AT_FDCWD, os.fsencode(dst), RENAME_EXCHANGE)
+if rc != 0:
+    bak = dst.parent / f".self-prev.{os.getpid()}"
+    os.rename(dst, bak)
+    try:
+        os.rename(src, dst)
+    except BaseException:
+        os.rename(bak, dst)
+        raise
+    os.rename(bak, src)
+SELF
+      then
+        rm -rf -- "$staged_self"
+        ok "已恢复面板选择的自研 Gemini 内核"
+      else
+        rm -rf -- "$staged_self"
+        warn "自研内核恢复失败，保留签名载荷；可在面板重新选择"
+      fi
+    else
+      rm -rf -- "$staged_self"
+      warn "自研内核校验失败，保留签名载荷；可在面板重新选择"
+    fi
+  fi
 )
 
 # 从 COMPOSE_FILE 去掉源码 ARM64 override 段，保留其它 overlay；全去掉后只剩 docker-compose.yml。

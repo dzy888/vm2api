@@ -134,6 +134,11 @@ const RUN_ERRORS = {
     502,
     '上游推理失败（502），请先刷新账号状态确认是否触发 Google 身份验证/风控，再检查绑定代理与宿主服务日志',
   ],
+  magpie_kernel_unavailable: [503, 'Magpie 内核 socket 或内部令牌不可用，请检查宿主服务配置'],
+  magpie_unavailable: [503, 'Magpie 网关不可用，请检查 Magpie 服务状态'],
+  magpie_slot_not_configured: [503, '该 Gemini 环境尚未配置 Magpie 后端路由'],
+  magpie_backend_not_allowed: [403, '该 Gemini 环境未启用所选 Magpie 后端'],
+  magpie_model_invalid: [400, 'Magpie 模型与所选后端不匹配'],
   gemini_native_tty_unavailable: [503, '宿主机没有可用的虚拟终端资源，请检查宿主机状态并重启 vm2api-gemini 服务'],
   gemini_native_worker_unavailable: [
     503,
@@ -788,6 +793,8 @@ function environmentView(
     schedulable: slotPref ? slotPref.schedulable !== false : true,
     schedule_level: Number.isSafeInteger(slotPref?.schedule_level) ? slotPref.schedule_level : 5,
     schedule_level_mode: slotPref?.schedule_level_mode === 'manual' ? 'manual' : 'auto',
+    inference_backend: slotPref?.inference_backend || 'native',
+    magpie_model: slotPref?.magpie_model || null,
     ...(slotPref?.unschedulable
       ? {
           unschedulable: slotPref.unschedulable,
@@ -1285,6 +1292,80 @@ export function createGeminiTerminal({ proxyPool, callHost = callGeminiHost }) {
   })
 }
 
+const KERNEL_MODE_FILE = ['share', 'gemini', 'kernel-mode']
+
+function kernelModePath(projectRoot) {
+  return path.join(projectRoot, ...KERNEL_MODE_FILE)
+}
+
+function readKernelMode(projectRoot) {
+  if (!projectRoot) return 'official'
+  try {
+    return fs.readFileSync(kernelModePath(projectRoot), 'utf8').trim() === 'self' ? 'self' : 'official'
+  } catch {
+    return 'official'
+  }
+}
+
+function writeKernelMode(projectRoot, mode) {
+  const file = kernelModePath(projectRoot)
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, `${mode}\n`, { mode: 0o644 })
+  } catch {
+    // Preference is best-effort; the installed payload is already switched.
+  }
+}
+
+/**
+ * Install the reconstructed payload from `share/gemini/self`. Throws errors
+ * carrying a `code` so both the explicit route and the mode switch share it.
+ */
+async function installSelfKernel(projectRoot) {
+  const fail = (code, message) => {
+    const error = new Error(message)
+    error.code = code
+    return error
+  }
+  if (!projectRoot) throw fail('gemini_self_project_missing', '控制面未提供安装根目录')
+  const selfDir = path.join(projectRoot, 'share', 'gemini', 'self')
+  const currentDir = path.join(projectRoot, 'share', 'gemini', 'current')
+  const pinned = readPinnedCragGeminiPublicKeySha256(projectRoot)
+  if (!pinned) throw fail('gemini_self_authority_missing', '发行包缺少公钥指纹，无法校验自研内核')
+  const pem = fs.readFileSync(path.join(selfDir, 'crag-license-public.pem'))
+  if (crypto.createHash('sha256').update(pem).digest('hex') !== pinned)
+    throw fail('gemini_self_authority_mismatch', '自研内核公钥与发行包不一致')
+  const selfAgy = path.join(selfDir, 'agy')
+  if (!fs.existsSync(selfAgy)) {
+    const installedAgy = path.join(currentDir, 'agy')
+    if (!fs.existsSync(installedAgy))
+      throw fail('gemini_self_agy_missing', 'share/gemini/self/agy 缺失，且没有可复用的已安装 agy')
+    fs.copyFileSync(installedAgy, selfAgy)
+    fs.chmodSync(selfAgy, 0o755)
+  }
+  const patcher = path.join(projectRoot, 'scripts', 'gemini_agy_patch.py')
+  try {
+    execFileSync('python3', ['-I', patcher, 'patch', '--no-backup', '--path', selfAgy], {
+      stdio: 'ignore',
+      timeout: 120_000,
+    })
+  } catch {
+    throw fail('gemini_self_agy_patch_failed', 'agy eligibility 补丁应用失败')
+  }
+  const backup = `${currentDir}.prev-${Date.now()}`
+  const hadCurrent = fs.existsSync(currentDir)
+  if (hadCurrent) fs.renameSync(currentDir, backup)
+  let version
+  try {
+    version = await installGeminiPayload(selfDir, currentDir, pem)
+  } catch (error) {
+    if (hadCurrent && !fs.existsSync(currentDir)) fs.renameSync(backup, currentDir)
+    throw error
+  }
+  if (hadCurrent) fs.rmSync(backup, { recursive: true, force: true })
+  return version
+}
+
 export function createGeminiPanelHandler({
   json,
   readBody,
@@ -1431,6 +1512,7 @@ export function createGeminiPanelHandler({
           payload_state: PAYLOAD_STATES.has(view.payload_state) ? view.payload_state : 'unknown',
           ...(view.payload_mode === 'crag_subscription' ? { payload_mode: 'crag_subscription' } : {}),
           self_kernel: isSelfKernel(projectRoot),
+          kernel_mode: readKernelMode(projectRoot),
           payload_issue: PAYLOAD_ISSUES.has(view.payload_issue) ? view.payload_issue : null,
           release_activated: typeof view.release_activated === 'boolean' ? view.release_activated : null,
           oauth_runtime_issue: OAUTH_ISSUES.has(view.oauth_runtime_issue) ? view.oauth_runtime_issue : null,
@@ -1501,48 +1583,11 @@ export function createGeminiPanelHandler({
         }
       }
       if (req.method === 'POST' && pathname === `${PANEL_PATH}/kernel-self/install`) {
-        if (!projectRoot) return fail(500, 'gemini_self_project_missing', '控制面未提供安装根目录')
-        const selfDir = path.join(projectRoot, 'share', 'gemini', 'self')
-        const currentDir = path.join(projectRoot, 'share', 'gemini', 'current')
         try {
-          const pinned = readPinnedCragGeminiPublicKeySha256(projectRoot)
-          if (!pinned)
-            return fail(500, 'gemini_self_authority_missing', '发行包缺少公钥指纹，无法校验自研内核')
-          const pem = fs.readFileSync(path.join(selfDir, 'crag-license-public.pem'))
-          if (crypto.createHash('sha256').update(pem).digest('hex') !== pinned)
-            return fail(400, 'gemini_self_authority_mismatch', '自研内核公钥与发行包不一致')
-          const selfAgy = path.join(selfDir, 'agy')
-          if (!fs.existsSync(selfAgy)) {
-            const installedAgy = path.join(currentDir, 'agy')
-            if (!fs.existsSync(installedAgy))
-              return fail(400, 'gemini_self_agy_missing', 'share/gemini/self/agy 缺失，且没有可复用的已安装 agy')
-            fs.copyFileSync(installedAgy, selfAgy)
-            fs.chmodSync(selfAgy, 0o755)
-          }
-          const patcher = path.join(projectRoot, 'scripts', 'gemini_agy_patch.py')
-          try {
-            execFileSync('python3', ['-I', patcher, 'patch', '--no-backup', '--path', selfAgy], {
-              stdio: 'ignore',
-              timeout: 120_000,
-            })
-          } catch {
-            return fail(400, 'gemini_self_agy_patch_failed', 'agy eligibility 补丁应用失败')
-          }
-          // installGeminiPayload renames staging onto the destination, which
-          // fails while `current` exists: move it aside and restore on error.
-          const backup = `${currentDir}.prev-${Date.now()}`
-          const hadCurrent = fs.existsSync(currentDir)
-          if (hadCurrent) fs.renameSync(currentDir, backup)
-          let version
-          try {
-            version = await installGeminiPayload(selfDir, currentDir, pem)
-          } catch (error) {
-            if (hadCurrent && !fs.existsSync(currentDir)) fs.renameSync(backup, currentDir)
-            throw error
-          }
-          if (hadCurrent) fs.rmSync(backup, { recursive: true, force: true })
+          const version = await installSelfKernel(projectRoot)
+          writeKernelMode(projectRoot, 'self')
           geminiScheduler?.invalidateCatalogCache?.()
-          return ok({ version })
+          return ok({ version, kernel_mode: 'self' })
         } catch (error) {
           const code =
             typeof error?.code === 'string' && /^[a-z][a-z0-9_]+$/.test(error.code)
@@ -1550,6 +1595,47 @@ export function createGeminiPanelHandler({
               : 'gemini_self_install_failed'
           return fail(400, code, error?.message)
         }
+      }
+      if (pathname === `${PANEL_PATH}/kernel-mode`) {
+        if (req.method === 'GET') return ok({ mode: readKernelMode(projectRoot) })
+        if (req.method === 'POST') {
+          const body = await readBody(req, 1024)
+          const mode = body?.mode === 'self' ? 'self' : body?.mode === 'official' ? 'official' : null
+          if (!mode) return fail(400, 'gemini_kernel_mode_invalid', 'mode 必须是 self 或 official')
+          try {
+            if (mode === 'self') {
+              const version = await installSelfKernel(projectRoot)
+              writeKernelMode(projectRoot, 'self')
+              geminiScheduler?.invalidateCatalogCache?.()
+              await callHost('daemon-action', { action: 'rebalance' }).catch(() => null)
+              return ok({ mode, version })
+            }
+            // 官方：宿主只在 current 缺失时才落盘签名载荷，先把自研包移开。
+            const currentDir = path.join(projectRoot, 'share', 'gemini', 'current')
+            const backup = `${currentDir}.mode-${Date.now()}`
+            const moved = fs.existsSync(currentDir)
+            if (moved) fs.renameSync(currentDir, backup)
+            let result
+            try {
+              result = await callHost('install-payload', {})
+            } catch (error) {
+              if (moved && !fs.existsSync(currentDir)) fs.renameSync(backup, currentDir)
+              throw error
+            }
+            if (moved) fs.rmSync(backup, { recursive: true, force: true })
+            writeKernelMode(projectRoot, 'official')
+            geminiScheduler?.invalidateCatalogCache?.()
+            await callHost('daemon-action', { action: 'rebalance' }).catch(() => null)
+            return ok({ mode, version: result?.version })
+          } catch (error) {
+            const code =
+              typeof error?.code === 'string' && /^[a-z][a-z0-9_]+$/.test(error.code)
+                ? error.code
+                : 'gemini_kernel_mode_failed'
+            return fail(400, code, error?.message)
+          }
+        }
+        return fail(405, 'method_not_allowed', 'method_not_allowed')
       }
       if (req.method === 'POST' && pathname === `${PANEL_PATH}/environments`) {
         const body = await readBody(req, 64 * 1024)
@@ -1647,6 +1733,8 @@ export function createGeminiPanelHandler({
           }
           prefPatch.schedule_level = parsedLevel.value
         }
+        if (Object.hasOwn(body, 'inference_backend')) prefPatch.inference_backend = body.inference_backend
+        if (Object.hasOwn(body, 'magpie_model')) prefPatch.magpie_model = body.magpie_model
         if (Object.hasOwn(body, 'schedulable')) {
           if (typeof body.schedulable !== 'boolean') {
             return fail(400, 'invalid_request', 'schedulable 必须为布尔值')
@@ -1832,11 +1920,18 @@ export function createGeminiPanelHandler({
         if (!model) return fail(400, 'gemini_invalid_model')
         if (!validPrompt(prompt)) return fail(400, 'gemini_invalid_prompt')
         const environment = await readEnvironment(callHost, id)
+        const slotPref = slotPrefs.resolved(id)
         const result = await callHost('test-chat', {
           id,
           ...boundProxy(proxyPool, environment, { ownerUserId: envOwnerOf(id) }),
           model,
           prompt,
+          ...(slotPref.inference_backend !== 'native'
+            ? {
+                magpie_backend: slotPref.inference_backend,
+                magpie_model: slotPref.magpie_model,
+              }
+            : {}),
         })
         if (!validRunId(result?.run_id)) throw hostError(PROTOCOL_ERROR)
         return ok({ run_id: result.run_id })

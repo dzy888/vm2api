@@ -155,6 +155,8 @@ export type GeminiEnvironment = {
   billing_ready: boolean
   proxy_ready?: boolean
   auth_method: 'oauth' | 'api_key'
+  inference_backend?: 'native' | 'agy-cli' | 'claude'
+  magpie_model?: string | null
   oauth_imported?: boolean
   kernel_version: string | null
   max_concurrency?: number
@@ -196,6 +198,57 @@ export type GeminiEnvironment = {
   } | null
 }
 
+
+function GeminiKernelModeSelector({ mode }: { mode?: 'self' | 'official' }) {
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState<'self' | 'official' | null>(null)
+  const current = mode === 'self' ? 'self' : 'official'
+  async function choose(next: 'self' | 'official') {
+    if (next === current || busy) return
+    setBusy(next)
+    try {
+      const result = await api<{ version?: string }>(`${ROOT}/kernel-mode`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: next }),
+      })
+      toast.success(
+        next === 'self'
+          ? `已切换为自研内核 ${result.version || ''}`
+          : `已切换为官方内核 ${result.version || ''}`,
+      )
+      await qc.invalidateQueries({ queryKey: QUERY_KEY })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '切换内核失败')
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <div className='flex flex-wrap items-center gap-2 text-sm'>
+      <span className='text-muted-foreground'>Gemini 内核</span>
+      <Button
+        type='button'
+        size='sm'
+        variant={current === 'official' ? 'default' : 'outline'}
+        disabled={!!busy}
+        onClick={() => choose('official')}
+      >
+        {busy === 'official' ? '切换中…' : '官方签名包'}
+      </Button>
+      <Button
+        type='button'
+        size='sm'
+        variant={current === 'self' ? 'default' : 'outline'}
+        disabled={!!busy}
+        onClick={() => choose('self')}
+      >
+        {busy === 'self' ? '安装中…' : '自研内核'}
+      </Button>
+      <span className='text-xs text-muted-foreground'>切换后请重启宿主槽位生效</span>
+    </div>
+  )
+}
+
 export type GeminiInventory = {
   available: boolean
   host_message?: string
@@ -207,6 +260,7 @@ export type GeminiInventory = {
     | 'invalid'
     | 'unknown'
   payload_mode?: 'legacy_release' | 'crag_subscription'
+  kernel_mode?: 'self' | 'official'
   payload_issue?: keyof typeof PAYLOAD_ISSUES | null
   release_activated?: boolean | null
   oauth_runtime_issue?: keyof typeof OAUTH_ISSUES | null
@@ -502,6 +556,10 @@ function GeminiBasicPrefs({
       ? environment.schedule_level
       : 5
   )
+  const [inferenceBackend, setInferenceBackend] = useState<
+    'native' | 'agy-cli' | 'claude'
+  >(environment.inference_backend || 'native')
+  const [magpieModel, setMagpieModel] = useState(environment.magpie_model || '')
 
   useEffect(() => {
     setName(environment.name || '')
@@ -520,12 +578,16 @@ function GeminiBasicPrefs({
         ? environment.schedule_level
         : 5
     )
+    setInferenceBackend(environment.inference_backend || 'native')
+    setMagpieModel(environment.magpie_model || '')
   }, [
     environment.id,
     environment.name,
     environment.max_concurrency,
     environment.schedule_level,
     environment.schedule_level_mode,
+    environment.inference_backend,
+    environment.magpie_model,
   ])
 
   const save = useGeminiMutation({
@@ -533,6 +595,16 @@ function GeminiBasicPrefs({
       const payload: Record<string, unknown> = {
         name: name.trim(),
         schedule_level: levelMode === 'manual' ? level : null,
+        inference_backend: inferenceBackend,
+      }
+      if (inferenceBackend === 'native') {
+        payload.magpie_model = null
+      } else {
+        const model = magpieModel.trim()
+        if (!model.startsWith(`${inferenceBackend}/`) || model.length > 140) {
+          throw new Error(`Magpie 模型需填写 ${inferenceBackend}/<model>`)
+        }
+        payload.magpie_model = model
       }
       if (concurrency.trim() !== '') {
         const parsed = Number(concurrency.trim())
@@ -596,6 +668,42 @@ function GeminiBasicPrefs({
             onChange={(e) => setConcurrency(e.target.value)}
           />
         </div>
+        <div className='space-y-1.5'>
+          <Label htmlFor={`gemini-pref-backend-${environment.id}`}>
+            推理后端
+          </Label>
+          <select
+            id={`gemini-pref-backend-${environment.id}`}
+            className='h-10 w-full rounded-md border border-input bg-background px-3 text-sm'
+            value={inferenceBackend}
+            disabled={busy || save.isPending}
+            onChange={(event) =>
+              setInferenceBackend(event.target.value as typeof inferenceBackend)
+            }
+          >
+            <option value='native'>CRAGGemini / agy</option>
+            <option value='agy-cli'>Magpie / agy CLI</option>
+            <option value='claude'>Magpie / Claude Code</option>
+          </select>
+        </div>
+        {inferenceBackend !== 'native' ? (
+          <div className='space-y-1.5'>
+            <Label htmlFor={`gemini-pref-magpie-model-${environment.id}`}>
+              Magpie 模型
+            </Label>
+            <Input
+              id={`gemini-pref-magpie-model-${environment.id}`}
+              value={magpieModel}
+              placeholder={
+                inferenceBackend === 'agy-cli'
+                  ? 'agy-cli/gemini-4-flash'
+                  : 'claude/claude-sonnet-5-5'
+              }
+              disabled={busy || save.isPending}
+              onChange={(event) => setMagpieModel(event.target.value)}
+            />
+          </div>
+        ) : null}
       </div>
       <div className='space-y-1.5'>
         <div className='flex flex-wrap items-center justify-between gap-2 text-sm'>
@@ -1364,10 +1472,10 @@ export function GeminiEnvironments({
           authMethod === 'oauth_auto'
             ? 'oauth'
             : authMethod === 'oauth_file' && importedAccount
-            ? importedAccount.kind === 'api_key'
-              ? 'api_key'
-              : 'oauth'
-            : authMethod
+              ? importedAccount.kind === 'api_key'
+                ? 'api_key'
+                : 'oauth'
+              : authMethod
         const effectiveApiKey =
           authMethod === 'oauth_file' && importedAccount?.kind === 'api_key'
             ? importedAccount.api_key
@@ -1380,15 +1488,18 @@ export function GeminiEnvironments({
             : null
         let environment: GeminiEnvironment
         if (authMethod === 'oauth_auto') {
-          environment = await api<GeminiEnvironment>(`${ROOT}/environments/auto-oauth`, {
-            method: 'POST',
-            body: JSON.stringify({
-              name,
-              proxy_id: proxyId,
-              google_email: googleEmail.trim(),
-              app_password: appPassword.trim(),
-            }),
-          })
+          environment = await api<GeminiEnvironment>(
+            `${ROOT}/environments/auto-oauth`,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                name,
+                proxy_id: proxyId,
+                google_email: googleEmail.trim(),
+                app_password: appPassword.trim(),
+              }),
+            }
+          )
         } else {
           environment = await api<GeminiEnvironment>(resource, {
             method: 'POST',
@@ -1676,6 +1787,9 @@ export function GeminiEnvironments({
           </Link>{' '}
           管理。
         </p>
+      ) : null}
+      {isImport && inventory.data ? (
+        <GeminiKernelModeSelector mode={inventory.data.kernel_mode} />
       ) : null}
       <GeminiStartupStatus inventory={inventory.data} />
       {isImport && isCragSubscription && cragSub?.sync_pending ? (
