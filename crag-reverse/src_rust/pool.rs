@@ -233,6 +233,12 @@ impl AgySlot {
                     }
                     if std::io::Error::last_os_error().kind() != std::io::ErrorKind::WouldBlock {
                         if let Some(f) = file.as_mut() { let _ = writeln!(f, "\n[pty err {:?}]\n", std::io::Error::last_os_error()); }
+                        // PTY reads often fail with EIO after the child exits; reap it
+                        // so the slot does not linger as a zombie.
+                        let status = unsafe { libc::waitpid(pid, std::ptr::null_mut(), 0) };
+                        if let Some(f) = file.as_mut() {
+                            let _ = writeln!(f, "\n[pty err reaped waitpid={status}]\n");
+                        }
                         return;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(25));
@@ -309,11 +315,13 @@ impl AgySlot {
     }
 
     pub fn is_healthy(&self) -> bool {
-        self.state != SlotState::Dead
-            && self
-                .pid
-                .map(|p| unsafe { libc::kill(p, 0) == 0 })
-                .unwrap_or(false)
+        let Some(pid) = self.pid else { return false };
+        if self.state == SlotState::Dead || unsafe { libc::kill(pid, 0) } != 0 {
+            return false;
+        }
+        // `kill(0)` also succeeds for zombies; reap and treat an exited child as dead.
+        let mut status = 0;
+        unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) == 0 }
     }
 
     pub fn is_reusable(&self) -> bool {
@@ -590,21 +598,31 @@ impl PoolManager {
             .get("x-craggemini-session")
             .cloned()
             .unwrap_or_default();
-        let slot = match self.take_matching_idle(&account, &session) {
+        let mut slot = match self.take_matching_idle(&account, &session) {
             Some(s) => s,
             None => {
                 let binding = AccountBindingConfig::from_config(&self.config);
                 AgySlot::spawn(self.config.clone(), binding, session.clone()).await?
             }
         };
-        slot.bridge.execute(envelope).await
+        let result = slot.bridge.execute(envelope).await;
+        // One reusable slot per account: extras are terminated so a burst of API
+        // traffic does not leave many concurrent CLI sessions logged in.
+        if result.is_ok() && slot.is_healthy() && self.idle.len() < self.warm_target() {
+            slot.state = SlotState::Idle;
+            slot.last_used = Instant::now();
+            self.idle.push_back(slot);
+        } else if let Some(guard) = slot.guard.take() {
+            guard.shutdown();
+        }
+        result
     }
 
     /// Streaming counterpart of `spawn_turn`.
     pub async fn spawn_stream(
         &mut self,
         envelope: crate::protocol::Envelope,
-    ) -> Result<crate::server::Delivery, Failure> {
+    ) -> Result<(crate::server::Delivery, u64, tokio::sync::oneshot::Receiver<()>), Failure> {
         let account = envelope
             .headers
             .get("x-craggemini-account")
@@ -622,13 +640,38 @@ impl PoolManager {
                 AgySlot::spawn(self.config.clone(), binding, session.clone()).await?
             }
         };
-        let delivery = slot.bridge.submit_stream(envelope).await?;
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let delivery = slot.bridge.submit_stream(envelope, Some(done_tx)).await?;
         // Keep the slot (and its native socket) alive for the stream task.
         slot.state = SlotState::Busy;
         let key = self.next_stream_id;
         self.next_stream_id = self.next_stream_id.wrapping_add(1);
         self.active.insert(key, slot);
-        Ok(delivery)
+        Ok((delivery, key, done_rx))
+    }
+
+    fn warm_target(&self) -> usize {
+        self.policy.min_warm_slots.max(1) as usize
+    }
+
+    /// Return a finished stream's slot to the idle set, or shut it down when the
+    /// warm target is already satisfied.
+    pub async fn recycle(&mut self, key: u64) {
+        let Some(mut slot) = self.active.remove(&key) else {
+            return;
+        };
+        if slot.is_healthy() && self.idle.len() < self.warm_target() {
+            slot.state = SlotState::Idle;
+            slot.last_used = Instant::now();
+            self.idle.push_back(slot);
+        } else if let Some(guard) = slot.guard.take() {
+            guard.shutdown();
+            let pid = slot.pid.unwrap_or(0);
+            if pid > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) };
+            }
+        }
     }
 }
 

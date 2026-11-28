@@ -495,10 +495,18 @@ fn build_envelope(headers: &HeaderMap, body: Value, stream: bool, request_id: St
 pub async fn dispatch_turn(rt: Arc<Runtime>, envelope: Envelope) -> Result<Delivery, Response> {
     rt.check_license()?;
     if envelope.stream {
-        let mut pool = rt.pool.lock().await;
-        pool.spawn_stream(envelope)
-            .await
-            .map_err(Failure::into_response)
+        let (delivery, key, done) = {
+            let mut pool = rt.pool.lock().await;
+            pool.spawn_stream(envelope)
+                .await
+                .map_err(Failure::into_response)?
+        };
+        let pool = rt.pool.clone();
+        tokio::spawn(async move {
+            let _ = done.await;
+            pool.lock().await.recycle(key).await;
+        });
+        Ok(delivery)
     } else {
         let mut pool = rt.pool.lock().await;
         pool.spawn_turn(envelope)

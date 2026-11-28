@@ -395,6 +395,7 @@ impl Bridge {
     pub async fn submit_stream(
         &self,
         envelope: Envelope,
+        done: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> Result<crate::server::Delivery, Failure> {
         let ring = self.ring.clone();
         let meta = self.meta_for(&envelope, true);
@@ -417,7 +418,8 @@ impl Bridge {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let first = std::time::Duration::from_millis(self.config.first_byte_timeout_ms.max(1));
         let idle = std::time::Duration::from_millis(self.config.idle_timeout_ms.max(1));
-        tokio::spawn(stream_task(self.native.clone(), ring, tx, first, idle));
+        let done = DoneGuard(done);
+        tokio::spawn(stream_task(self.native.clone(), ring, tx, done, first, idle));
         Ok(crate::server::Delivery::Stream(rx))
     }
 
@@ -705,15 +707,28 @@ impl Bridge {
     }
 }
 
+/// Fires the slot's completion channel on every return path of the stream task.
+struct DoneGuard(Option<tokio::sync::oneshot::Sender<()>>);
+
+impl Drop for DoneGuard {
+    fn drop(&mut self) {
+        if let Some(tx) = self.0.take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
 async fn stream_task(
     native: Option<
         std::sync::Arc<tokio::sync::Mutex<tokio::io::BufReader<tokio::net::UnixStream>>>,
     >,
     ring: Option<std::sync::Arc<ShmRingOwner>>,
     tx: tokio::sync::mpsc::Sender<Result<bytes::Bytes, Failure>>,
+    done: DoneGuard,
     first_byte: std::time::Duration,
     idle: std::time::Duration,
 ) {
+    let _done = done;
     let mut deadline = first_byte;
     loop {
         let next = async {

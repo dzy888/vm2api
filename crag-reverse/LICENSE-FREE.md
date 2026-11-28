@@ -193,3 +193,16 @@ immediately and the control plane answered 429.
 Fix: `PoolManager::warm_min` spawns `max(1, min_warm_slots)` slots at startup and
 `/internal/health` reports `pool.ready=false` until that warm-up finished, so the
 host's readiness probe waits instead of hitting a cold pool.
+
+## Session fan-out (2026-11-28)
+
+A burst of API requests used to spawn one TUI per request and never release it: slots
+were only ever added, so one consumer account could accumulate up to `max_concurrency`
+(20) concurrent CLI sessions for 10 minutes and leave zombies behind. A single account
+with many simultaneous CLI logins from one IP is exactly what "reverse proxy / account
+sharing" detection looks at.
+
+Fixes: finished streams are recycled (`recycle`), only `max(1, min_warm_slots)` idle
+slots are kept and the rest are SIGTERM'd, PTY EOF/EIO reaps the child (`waitpid`), and
+`is_healthy` treats zombies as dead so a dead slot is never reused. Burst of 5 now
+settles from 5 back to 1 instead of staying at 6.
